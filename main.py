@@ -1,79 +1,52 @@
 #!/usr/bin/env python3
 
-import math
 import os
 import shutil
 import sys
 
-import get_max_zoom_level
-import get_script
-import get_metadata
-import download_images
-import combine_images
+import get_metadatas
+import download_image
 
 folder_path = os.path.expanduser("~/Downloads/")
 temp_imgs_path = folder_path + "temp_imgs/"
 
 
-def main():
-    if len(sys.argv) < 2:
-        sys.exit("no url provided")
-    url = sys.argv[1]
-
+def main(url):
     try:
-        script = get_script.get_script(url)
+        image_metadatas = get_metadatas.get_metadatas(url)
     except Exception as e:
-        sys.exit(f"get script error: {e}")
+        sys.exit(f"get metadatas error: {e}")
 
-    try:
-        url, format, tile_size, width, height = get_metadata.get_metadata(script)
-    except Exception as e:
-        sys.exit(f"get metadata error: {e}")
+    for i, image_metadata in enumerate(image_metadatas):
+        print(f'---downloading image {i + 1}/{len(image_metadatas)}---')
+        print(f"index: {image_metadata.index}")
+        print(f"title: {image_metadata.title}")
+        print(f"format: {image_metadata.format}")
+        print(f"url: {image_metadata.url}")
+        print(f"tile_size: {image_metadata.tile_size}")
+        print(f"width: {image_metadata.width}")
+        print(f"height: {image_metadata.height}")
+        print(f"rows: {image_metadata.rows}")
+        print(f"cols: {image_metadata.cols}")
+        print(f"max_zoom_level: {image_metadata.max_zoom_level}")
 
-    if format != 'jpg':
-        sys.exit("format not jpg")
+        try:
+            download_image.download_image(folder_path, temp_imgs_path, image_metadata)
+        except Exception as e:
+            sys.exit(f"download image error: {e}")
 
-    print(f"url: {url}")
-    print(f"format: {format}")
-    print(f"tile_size: {tile_size}")
-    print(f"width: {width}")
-    print(f"height: {height}")
-
-    rows = math.ceil(height / tile_size)
-    cols = math.ceil(width / tile_size)
-    print(f"rows: {rows}")
-    print(f"cols: {cols}")
-
-    max_zoom_level = get_max_zoom_level.get_max_zoom_level(url)
-    if not max_zoom_level:
-        sys.exit("get max_zoom_level error")
-    print(f"max_zoom_level: {max_zoom_level}")
+        print("done.\n")
 
     try:
         shutil.rmtree(temp_imgs_path)
-    except FileNotFoundError:
+    except Exception:
         pass
-    except OSError as e:
-        sys.exit(f"remove folder error: {e}")
 
-    try:
-        os.makedirs(temp_imgs_path, exist_ok=True)
-    except OSError as e:
-        sys.exit(f"create folder error: {e}")
-
-    url += f"{max_zoom_level}/"
-    try:
-        download_images.download_images(url, temp_imgs_path, rows, cols)
-    except Exception as e:
-        sys.exit(f"download images error: {e}")
-
-    try:
-        combine_images.combine_images(folder_path, temp_imgs_path, rows, cols)
-    except Exception as e:
-        sys.exit(f"combine images error: {e}")
-
-    print("done.")
+    print("all done.")
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) < 2:
+        sys.exit("no url provided")
+    url = sys.argv[1]
+    main(url)
