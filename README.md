@@ -4,12 +4,9 @@
 
 # 2 使用方法
 
-首先安装以下依赖：
+首先安装依赖：
 ```bash
-pip3 install Pillow
-pip3 install requests
-pip3 install esprima
-pip3 install beautifulsoup4 lxml
+pip3 install -r requirements.txt
 ```
 
 下载图片，执行以下命令（默认下载到 `~/Downloads/` 目录）：
