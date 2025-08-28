@@ -1,33 +1,64 @@
-# 1 项目介绍
+# Artsy Tiled Image Downloader
 
-本工具支持知名艺术网站Artsy的tile化原图的解析和下载。
+Download high-resolution tiled artwork images from Artsy artwork pages for personal study and technical research.
 
-# 2 使用方法
+## Features
 
-首先安装以下依赖：
+- Fetches artwork image metadata through Artsy's GraphQL data source.
+- Downloads same-resolution direct image assets when available.
+- Falls back to Deep Zoom tile download and stitching when a direct image is unavailable.
+- Saves output images to `~/Downloads/` by default.
+
+## Installation
+
 ```bash
-pip3 install Pillow
-pip3 install requests
-pip3 install esprima
-pip3 install beautifulsoup4 lxml
+pip3 install -r requirements.txt
 ```
 
-下载图片，执行以下命令（默认下载到 `~/Downloads/` 目录）：
+If your Python installation is externally managed, use a virtual environment:
+
 ```bash
-./main.py [url]
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-示例：
+## Usage
+
+```bash
+./main.py [artsy-artwork-url]
+```
+
+Example:
+
 ```bash
 ./main.py https://www.artsy.net/artwork/nick-doyle-bathing-in-your-cold-light
 ```
 
-# 3 免责声明
+Sample output:
 
-1. **仅供学习交流**: 本项目仅用于个人学习和技术研究，严禁用于任何商业或非法用途。
-2. **版权归属**: 所有图片版权归原网站所有，用户下载后请在24小时内删除。因使用本工具下载内容而产生的任何版权纠纷，由用户自行承担全部责任。
-3. **遵守协议**: 用户在使用本工具前，应自行阅读并遵守目标网站的用户协议和反爬虫策略。任何因违反相关规定而导致的后果，与本项目无关。
-4. **风险自负**: 本软件按“原样”提供，不作任何保证。对于因使用本工具而造成的任何直接或间接损失，开发者不承担任何责任。
-5. **独立项目**: 本项目与目标网站无任何关联。
+```text
+URL: https://www.artsy.net/artwork/yayoi-kusama-stars-11
+Fetching metadata...
+Images: 1
+Image 1/1: 2547x3543
+Downloading...
+Saved: /Users/you/Downloads/output_yayoi-kusama-stars-11_0.jpg (direct)
+Elapsed: 1.0s
+```
 
-**一旦您开始使用本工具，即表示您已同意并接受以上所有条款。**
+## Star History
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=inostarlin-passion/artsytiledimagedownloader&type=date&theme=dark&legend=top-left" />
+  <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=inostarlin-passion/artsytiledimagedownloader&type=date&legend=top-left" />
+  <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=inostarlin-passion/artsytiledimagedownloader&type=date&legend=top-left" />
+</picture>
+
+## Disclaimer
+
+This project is independent and is not affiliated with Artsy.
+
+Use it only for personal learning, interoperability research, and lawful technical analysis. You are responsible for respecting Artsy's terms of use, robots policies, copyright restrictions, and any applicable laws. Do not use this project for commercial redistribution, copyright infringement, abusive automation, or any unauthorized access.
+
+The software is provided as-is, without warranty. The maintainers are not responsible for misuse or for any direct or indirect loss caused by using this tool.
