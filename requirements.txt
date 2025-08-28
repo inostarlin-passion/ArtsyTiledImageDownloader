@@ -1,6 +1,11 @@
-numpy==2.3.2
-openvino==2025.2.0
-openvino-telemetry==2025.2.0
-packaging==25.0
-TBB==0.2
-wheel @ file:///opt/homebrew/Cellar/python%403.13/3.13.2/libexec/wheel-0.45.1-py3-none-any.whl#sha256=b9235939e2096903717cb6bfc132267f8a7e46deb2ec3ef9c5e234ea301795d0
+beautifulsoup4==4.13.5
+certifi==2025.8.3
+charset-normalizer==3.4.3
+esprima==4.0.1
+idna==3.10
+lxml==6.0.1
+pillow==11.3.0
+requests==2.32.5
+soupsieve==2.7
+typing_extensions==4.15.0
+urllib3==2.5.0
