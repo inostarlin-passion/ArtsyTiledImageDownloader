@@ -46,7 +46,7 @@ def download_tile_image(arg):
     file_name = arg[1]
 
     try:
-        response = requests.get(img_url, timeout=10)
+        response = requests.get(img_url, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
     except Exception as e:
         return e

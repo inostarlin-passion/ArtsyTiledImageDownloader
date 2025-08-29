@@ -12,7 +12,7 @@ from config import *
 
 
 def is_url_ok(url):
-    return requests.get(url, timeout=10).status_code == 200
+    return requests.get(url, timeout=REQUEST_TIMEOUT).status_code == 200
 
 
 def binary_search(url, low, high):
@@ -43,7 +43,7 @@ def get_max_zoom_level(url):
 
 
 def get_script(url):
-    response = requests.get(url, headers=REQUEST_HEADERS, timeout=10)
+    response = requests.get(url, headers=REQUEST_HEADERS, timeout=REQUEST_TIMEOUT)
     response.raise_for_status()
     html_content = response.text
     soup = BeautifulSoup(html_content, 'lxml')
