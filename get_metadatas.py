@@ -8,12 +8,7 @@ import requests
 from bs4 import BeautifulSoup
 
 import image_metadata
-
-headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-}
-
-pattern = r"^\s*var __RELAY_HYDRATION_DATA__ = "
+from config import *
 
 
 def is_url_ok(url):
@@ -48,12 +43,12 @@ def get_max_zoom_level(url):
 
 
 def get_script(url):
-    response = requests.get(url, headers=headers, timeout=10)
+    response = requests.get(url, headers=REQUEST_HEADERS, timeout=10)
     response.raise_for_status()
     html_content = response.text
     soup = BeautifulSoup(html_content, 'lxml')
     for script in soup.find_all('script'):
-        if not re.search(pattern, script.text):
+        if not re.search(SCRIPT_PATTERN, script.text):
             continue
         return script.text
     raise ValueError("script not found")
