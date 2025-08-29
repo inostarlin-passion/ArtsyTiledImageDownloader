@@ -16,34 +16,34 @@ headers = {
 pattern = r"^\s*var __RELAY_HYDRATION_DATA__ = "
 
 
+def is_url_ok(url):
+    return requests.get(url, timeout=10).status_code == 200
+
+
 def binary_search(url, low, high):
     if low > high:
         return
     img_url = f"{url}{high}/0_0.jpg"
-    response = requests.get(img_url, timeout=10)
-    if response.status_code == 200:
+    if is_url_ok(img_url):
         return high
     mid = (low + high) >> 1
     img_url = f"{url}{mid}/0_0.jpg"
-    response = requests.get(img_url, timeout=10)
-    if response.status_code == 200:
+    if is_url_ok(img_url):
         return binary_search(url, mid, high - 1)
     return binary_search(url, low, mid - 1)
 
 
-def find_upper_limit(url):
+def get_upper_limit(url):
     limit = 1
     img_url = f"{url}{limit}/0_0.jpg"
-    response = requests.get(img_url, timeout=10)
-    while response.status_code == 200:
+    while is_url_ok(img_url):
         limit <<= 1
         img_url = f"{url}{limit}/0_0.jpg"
-        response = requests.get(img_url, timeout=10)
     return limit
 
 
 def get_max_zoom_level(url):
-    upper_limit = find_upper_limit(url)
+    upper_limit = get_upper_limit(url)
     return binary_search(url, upper_limit >> 1, upper_limit)
 
 
@@ -86,6 +86,7 @@ def get_metadatas(url):
         rows = math.ceil(height / tile_size)
         cols = math.ceil(width / tile_size)
         image_metadatas.append(
-            image_metadata.ImageMetadata(i, title, format, url, tile_size, width, height, rows, cols, max_zoom_level))
+            image_metadata.ImageMetadata(index=i, title=title, format=format, url=url, tile_size=tile_size, width=width,
+                                         height=height, rows=rows, cols=cols, max_zoom_level=max_zoom_level))
 
     return image_metadatas

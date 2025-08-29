@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
-
-import os
+import atexit
 import shutil
 import sys
 
 import get_metadatas
 import download_image
+from config import *
 
-folder_path = os.path.expanduser("~/Downloads/")
-temp_imgs_path = folder_path + "temp_imgs/"
+
+def remove_temp_imgs_path():
+    try:
+        if os.path.exists(TEMP_IMGS_PATH):
+            shutil.rmtree(TEMP_IMGS_PATH)
+    except Exception:
+        pass
 
 
 def main(url):
@@ -19,33 +24,20 @@ def main(url):
 
     for i, image_metadata in enumerate(image_metadatas):
         print(f'---downloading image {i + 1}/{len(image_metadatas)}---')
-        print(f"index: {image_metadata.index}")
-        print(f"title: {image_metadata.title}")
-        print(f"format: {image_metadata.format}")
-        print(f"url: {image_metadata.url}")
-        print(f"tile_size: {image_metadata.tile_size}")
-        print(f"width: {image_metadata.width}")
-        print(f"height: {image_metadata.height}")
-        print(f"rows: {image_metadata.rows}")
-        print(f"cols: {image_metadata.cols}")
-        print(f"max_zoom_level: {image_metadata.max_zoom_level}")
+        print(image_metadata)
 
         try:
-            download_image.download_image(folder_path, temp_imgs_path, image_metadata)
+            download_image.download_full_image(image_metadata)
         except Exception as e:
             sys.exit(f"download image error: {e}")
 
         print("done.\n")
 
-    try:
-        shutil.rmtree(temp_imgs_path)
-    except Exception:
-        pass
-
     print("all done.")
 
 
 if __name__ == "__main__":
+    atexit.register(remove_temp_imgs_path)
     if len(sys.argv) < 2:
         sys.exit("no url provided")
     url = sys.argv[1]
