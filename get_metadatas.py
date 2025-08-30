@@ -71,7 +71,9 @@ def get_metadatas(url):
     figures = json_data[0][1]['json']['data']['artworkResult']['figures']
     image_metadatas = []
     for i in range(len(figures)):
+        print(f"---parsing metadata {i + 1}/{len(figures)}---")
         if figures[i]["__typename"] != "Image":
+            print("not image, pass\n")
             continue
 
         format = figures[i]["deepZoom"]["Image"]["Format"]
@@ -86,5 +88,6 @@ def get_metadatas(url):
         image_metadatas.append(
             image_metadata.ImageMetadata(index=i, title=title, format=format, url=url, tile_size=tile_size, width=width,
                                          height=height, rows=rows, cols=cols, max_zoom_level=max_zoom_level))
+        print("done.\n")
 
     return image_metadatas
