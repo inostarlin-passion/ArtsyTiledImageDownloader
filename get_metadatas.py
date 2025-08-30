@@ -57,25 +57,28 @@ def get_script(url):
 def get_metadatas(url):
     script = get_script(url)
     ast = esprima.parseScript(script)
-    if ast.type == 'Program' and ast.body:
+    if ast.type == "Program" and ast.body:
         statement = ast.body[0]
-        if statement and statement.type == 'VariableDeclaration':
+        if statement and statement.type == "VariableDeclaration":
             declaration = statement.declarations[0]
-            if declaration.type == 'VariableDeclarator':
+            if declaration.type == "VariableDeclarator":
                 right_hand_side = declaration.init
-                if right_hand_side and right_hand_side.type == 'Literal':
+                if right_hand_side and right_hand_side.type == "Literal":
                     value = right_hand_side.value
 
     json_data = json.loads(value)
-    title = json.loads(json_data[0][0])['variables']['artworkID']
+    title = json.loads(json_data[0][0])["variables"]["artworkID"]
     figures = json_data[0][1]['json']['data']['artworkResult']['figures']
     image_metadatas = []
     for i in range(len(figures)):
-        format = figures[i]['deepZoom']['Image']['Format']
-        url = figures[i]['deepZoom']['Image']['Url']
-        tile_size = figures[i]['deepZoom']['Image']['TileSize']
-        width = figures[i]['deepZoom']['Image']['Size']['Width']
-        height = figures[i]['deepZoom']['Image']['Size']['Height']
+        if figures[i]["__typename"] != "Image":
+            continue
+
+        format = figures[i]["deepZoom"]["Image"]["Format"]
+        url = figures[i]["deepZoom"]["Image"]["Url"]
+        tile_size = figures[i]["deepZoom"]["Image"]["TileSize"]
+        width = figures[i]["deepZoom"]["Image"]["Size"]["Width"]
+        height = figures[i]["deepZoom"]["Image"]["Size"]["Height"]
         max_zoom_level = get_max_zoom_level(url)
         url += f"{max_zoom_level}/"
         rows = math.ceil(height / tile_size)
