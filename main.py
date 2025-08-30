@@ -2,6 +2,7 @@
 import atexit
 import shutil
 import sys
+import time
 
 import get_metadatas
 import download_image
@@ -17,6 +18,8 @@ def remove_temp_imgs_path():
 
 
 def main(url):
+    timestamp = time.time()
+
     try:
         image_metadatas = get_metadatas.get_metadatas(url)
     except Exception as e:
@@ -34,6 +37,7 @@ def main(url):
         print("done.\n")
 
     print("all done.")
+    print(f"time elapsed: {int(time.time() - timestamp)}s")
 
 
 if __name__ == "__main__":
