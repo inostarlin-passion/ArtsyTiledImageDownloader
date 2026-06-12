@@ -32,7 +32,7 @@ pip install -r requirements.txt
 Example:
 
 ```bash
-./main.py https://www.artsy.net/artwork/nick-doyle-bathing-in-your-cold-light
+./main.py https://www.artsy.net/artwork/yayoi-kusama-stars-11
 ```
 
 Sample output:
