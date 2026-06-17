@@ -15,27 +15,33 @@ Download high-resolution tiled artwork images from Artsy artwork pages for perso
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e .
 ```
 
 ## Usage
 
 ```bash
-./main.py [artsy-artwork-url]
+python -m artsy_tiled_image_downloader [artsy-artwork-url]
+```
+
+After installation, the same CLI is also available as:
+
+```bash
+artsy-downloader [artsy-artwork-url]
 ```
 
 Example:
 
 ```bash
-./main.py https://www.artsy.net/artwork/yayoi-kusama-stars-11
+python -m artsy_tiled_image_downloader https://www.artsy.net/artwork/yayoi-kusama-stars-11
 ```
 
 Useful options:
 
 ```bash
-./main.py --metadata-only https://www.artsy.net/artwork/yayoi-kusama-stars-11
-./main.py --output-dir ~/Downloads --concurrency 24 --timeout 30 [url]
-./main.py --skip-direct [url]
+python -m artsy_tiled_image_downloader --metadata-only https://www.artsy.net/artwork/yayoi-kusama-stars-11
+python -m artsy_tiled_image_downloader --output-dir ~/Downloads --concurrency 24 --timeout 30 [url]
+python -m artsy_tiled_image_downloader --skip-direct [url]
 ```
 
 Sample output:
@@ -53,7 +59,7 @@ Elapsed: 1.0s
 ## Testing
 
 ```bash
-pip install -r requirements-dev.txt
+pip install -e ".[dev]"
 pytest
 ruff check .
 ```

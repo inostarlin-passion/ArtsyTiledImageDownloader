@@ -16,7 +16,8 @@ def test_live_metadata_smoke(project_root: Path) -> None:
     result = subprocess.run(
         [
             sys.executable,
-            str(project_root / "main.py"),
+            "-m",
+            "artsy_tiled_image_downloader",
             "--metadata-only",
             "https://www.artsy.net/artwork/yayoi-kusama-stars-11",
         ],

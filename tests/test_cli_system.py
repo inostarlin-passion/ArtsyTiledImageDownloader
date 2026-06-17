@@ -74,7 +74,8 @@ def test_cli_end_to_end_with_local_http_server(
         result = subprocess.run(
             [
                 sys.executable,
-                str(project_root / "main.py"),
+                "-m",
+                "artsy_tiled_image_downloader",
                 "--endpoint",
                 f"http://{host}:{port}/graphql",
                 "--output-dir",
