@@ -1,0 +1,29 @@
+[project]
+name = "artsy-tiled-image-downloader"
+version = "2.0.0"
+description = "Download high-resolution tiled artwork images from Artsy artwork pages."
+requires-python = ">=3.10"
+dependencies = [
+    "httpx[http2]==0.28.1",
+    "pillow==12.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.1.0",
+    "ruff==0.15.17",
+]
+
+[project.scripts]
+artsy-downloader = "artsy_tiled_image_downloader.cli:run"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

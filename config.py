@@ -1,28 +1,31 @@
-import os
+from artsy_tiled_image_downloader.config import (
+    DEFAULT_CONCURRENCY,
+    DEFAULT_METAPHYSICS_ENDPOINT,
+    DEFAULT_OUTPUT_DIR,
+    DEFAULT_RETRIES,
+    DEFAULT_TIMEOUT_SECONDS,
+    GRAPHQL_HEADERS,
+    IMAGE_HEADERS,
+    REQUEST_HEADERS,
+    DownloaderSettings,
+)
 
-REQUEST_HEADERS = {
-    "User-Agent": "ArtsyTiledImageDownloader/1.0",
-}
+REQUEST_TIMEOUT = DEFAULT_TIMEOUT_SECONDS
+METAPHYSICS_ENDPOINT = DEFAULT_METAPHYSICS_ENDPOINT
+FOLDER_PATH = str(DEFAULT_OUTPUT_DIR)
+TEMP_IMGS_PATH = None
+MAX_WORKERS = DEFAULT_CONCURRENCY
+DOWNLOAD_RETRIES = DEFAULT_RETRIES
 
-GRAPHQL_HEADERS = {
-    **REQUEST_HEADERS,
-    "Accept": "application/json",
-    "Content-Type": "application/json",
-}
-
-IMAGE_HEADERS = {
-    **REQUEST_HEADERS,
-    "Accept": "image/avif,image/webp,image/jpeg,image/*,*/*;q=0.8",
-}
-
-REQUEST_TIMEOUT = 10
-
-METAPHYSICS_ENDPOINT = "https://metaphysics-production.artsy.net/v2"
-
-FOLDER_PATH = os.path.expanduser("~/Downloads/")
-
-TEMP_IMGS_PATH = FOLDER_PATH + ".temp_imgs/"
-
-MAX_WORKERS = 10
-
-DOWNLOAD_RETRIES = 3
+__all__ = [
+    "DOWNLOAD_RETRIES",
+    "FOLDER_PATH",
+    "GRAPHQL_HEADERS",
+    "IMAGE_HEADERS",
+    "MAX_WORKERS",
+    "METAPHYSICS_ENDPOINT",
+    "REQUEST_HEADERS",
+    "REQUEST_TIMEOUT",
+    "TEMP_IMGS_PATH",
+    "DownloaderSettings",
+]
