@@ -12,6 +12,20 @@ Download high-resolution tiled artwork images from Artsy artwork pages for perso
 
 ## Installation
 
+Install from PyPI:
+
+```bash
+pip install artsy-tiled-image-downloader
+```
+
+The installed console command is:
+
+```bash
+artsy-downloader [artsy-artwork-url]
+```
+
+For local development:
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
@@ -65,6 +79,27 @@ ruff check .
 ```
 
 The test suite covers URL parsing, metadata parsing, filename safety, tile crop math, direct-image fallback, in-memory tile stitching, and a local HTTP end-to-end CLI run.
+
+## PyPI Release
+
+Package name: `artsy-tiled-image-downloader`
+
+Build and validate the release artifacts:
+
+```bash
+rm -rf build dist *.egg-info
+python -m pip install -e ".[dev]"
+python -m build
+python -m twine check dist/*
+```
+
+Upload with a PyPI project or account token:
+
+```bash
+TWINE_USERNAME=__token__ TWINE_PASSWORD=pypi-... python -m twine upload dist/*
+```
+
+This repository also includes `.github/workflows/publish.yml` for PyPI Trusted Publishing. Configure the trusted publisher on PyPI for this repository and publish a GitHub release to upload `dist/*` without storing a long-lived PyPI token in GitHub secrets.
 
 ## Temporary Data
 

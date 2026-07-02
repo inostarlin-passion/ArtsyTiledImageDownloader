@@ -6,20 +6,54 @@ build-backend = "setuptools.build_meta"
 name = "artsy-tiled-image-downloader"
 version = "2.0.0"
 description = "Download high-resolution tiled artwork images from Artsy artwork pages."
+readme = "README.md"
 requires-python = ">=3.10"
-dependencies = [
-    "httpx[http2]==0.28.1",
-    "pillow==12.2.0",
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "inostarlin-passion", email = "inostarlin@gmail.com" },
 ]
+keywords = ["artsy", "deep-zoom", "tiles", "image-downloader", "artwork"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "httpx[http2]>=0.28.1,<0.29",
+    "pillow>=12.2,<13",
+]
+
+[project.urls]
+Homepage = "https://github.com/inostarlin-passion/ArtsyTiledImageDownloader"
+Repository = "https://github.com/inostarlin-passion/ArtsyTiledImageDownloader"
+Issues = "https://github.com/inostarlin-passion/ArtsyTiledImageDownloader/issues"
 
 [project.optional-dependencies]
 dev = [
-    "pytest==9.1.0",
-    "ruff==0.15.17",
+    "build>=1.3,<2",
+    "pytest>=9.1,<10",
+    "ruff>=0.15.17,<0.16",
+    "twine>=6.2,<7",
 ]
 
 [project.scripts]
 artsy-downloader = "artsy_tiled_image_downloader.cli:run"
+
+[tool.setuptools.packages.find]
+include = ["artsy_tiled_image_downloader*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

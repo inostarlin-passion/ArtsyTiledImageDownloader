@@ -70,3 +70,12 @@ def test_parse_metadatas_rejects_malformed_deep_zoom(sample_artwork_payload) -> 
 
     with pytest.raises(MetadataError, match="Width"):
         parse_metadatas(artwork, "local-test")
+
+
+def test_parse_metadatas_ignores_non_http_direct_urls(sample_artwork_payload) -> None:
+    artwork = sample_artwork_payload()
+    artwork["images"][0]["normalized"] = "file:///tmp/image.jpg"
+
+    metadata = parse_metadatas(artwork, "local-test")[0]
+
+    assert metadata.direct_urls == ("https://images.example/main.jpg",)

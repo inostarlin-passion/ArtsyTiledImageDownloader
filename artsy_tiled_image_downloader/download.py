@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -31,6 +31,12 @@ class DownloadedTile:
     col: int
     row: int
     content: bytes
+
+
+def _tile_positions(metadata: ImageMetadata) -> Iterator[tuple[int, int]]:
+    for row in range(metadata.rows):
+        for col in range(metadata.cols):
+            yield col, row
 
 
 async def _fetch_bytes(
@@ -106,26 +112,44 @@ async def download_tiles(
     progress_callback: ProgressCallback | None = None,
 ) -> dict[tuple[int, int], bytes]:
     semaphore = asyncio.Semaphore(settings.concurrency)
-    tasks = [
-        asyncio.create_task(
-            _download_single_tile(client, metadata, settings, semaphore, col, row)
+    positions = _tile_positions(metadata)
+    pending: set[asyncio.Task[DownloadedTile]] = set()
+
+    def schedule_next() -> None:
+        try:
+            col, row = next(positions)
+        except StopIteration:
+            return
+        pending.add(
+            asyncio.create_task(
+                _download_single_tile(client, metadata, settings, semaphore, col, row)
+            )
         )
-        for row in range(metadata.rows)
-        for col in range(metadata.cols)
-    ]
+
+    for _ in range(min(settings.concurrency, metadata.tile_count)):
+        schedule_next()
+
     completed = 0
     tiles: dict[tuple[int, int], bytes] = {}
 
     try:
-        for task in asyncio.as_completed(tasks):
-            tile = await task
-            tiles[(tile.col, tile.row)] = tile.content
-            completed += 1
-            if progress_callback:
-                progress_callback(completed, metadata.tile_count)
+        while pending:
+            done, pending = await asyncio.wait(
+                pending,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in done:
+                tile = task.result()
+                tiles[(tile.col, tile.row)] = tile.content
+                completed += 1
+                if progress_callback:
+                    progress_callback(completed, metadata.tile_count)
+                schedule_next()
     except Exception:
-        for task in tasks:
+        for task in pending:
             task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
         raise
 
     if len(tiles) != metadata.tile_count:
@@ -162,29 +186,49 @@ def stitch_tiles(
 ) -> Path:
     canvas = Image.new("RGB", (metadata.width, metadata.height), "white")
 
-    for row in range(metadata.rows):
-        for col in range(metadata.cols):
-            content = tiles.get((col, row))
-            if content is None:
-                raise ImageAssemblyError(f"missing downloaded tile: {col}_{row}")
+    try:
+        for row in range(metadata.rows):
+            for col in range(metadata.cols):
+                content = tiles.get((col, row))
+                if content is None:
+                    raise ImageAssemblyError(f"missing downloaded tile: {col}_{row}")
 
-            try:
-                with Image.open(BytesIO(content)) as raw_tile:
-                    tile_image = ImageOps.exif_transpose(raw_tile).convert("RGB")
-                    crop_box = _tile_crop_box(metadata, col, row, tile_image.size)
-                    canvas.paste(
-                        tile_image.crop(crop_box),
-                        (col * metadata.tile_size, row * metadata.tile_size),
-                    )
-            except (OSError, UnidentifiedImageError) as exc:
-                raise ImageAssemblyError(f"invalid tile image: {col}_{row}") from exc
+                try:
+                    with Image.open(BytesIO(content)) as raw_tile:
+                        tile_image = ImageOps.exif_transpose(raw_tile).convert("RGB")
+                        try:
+                            crop_box = _tile_crop_box(
+                                metadata,
+                                col,
+                                row,
+                                tile_image.size,
+                            )
+                            cropped_tile = tile_image.crop(crop_box)
+                            try:
+                                canvas.paste(
+                                    cropped_tile,
+                                    (
+                                        col * metadata.tile_size,
+                                        row * metadata.tile_size,
+                                    ),
+                                )
+                            finally:
+                                cropped_tile.close()
+                        finally:
+                            tile_image.close()
+                except (OSError, UnidentifiedImageError) as exc:
+                    raise ImageAssemblyError(
+                        f"invalid tile image: {col}_{row}"
+                    ) from exc
 
-    save_kwargs: dict[str, object] = {"format": metadata.pil_format}
-    if metadata.pil_format == "JPEG":
-        save_kwargs["quality"] = 95
+        save_kwargs: dict[str, object] = {"format": metadata.pil_format}
+        if metadata.pil_format == "JPEG":
+            save_kwargs["quality"] = 95
 
-    atomic_save_image(output_path, canvas, **save_kwargs)
-    return output_path
+        atomic_save_image(output_path, canvas, **save_kwargs)
+        return output_path
+    finally:
+        canvas.close()
 
 
 def _validate_output_size(

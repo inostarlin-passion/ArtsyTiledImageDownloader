@@ -7,8 +7,14 @@ import httpx
 import pytest
 from PIL import Image
 
+import artsy_tiled_image_downloader.download as download_module
 from artsy_tiled_image_downloader.config import DownloaderSettings
-from artsy_tiled_image_downloader.download import download_image, stitch_tiles
+from artsy_tiled_image_downloader.download import (
+    DownloadedTile,
+    download_image,
+    download_tiles,
+    stitch_tiles,
+)
 from artsy_tiled_image_downloader.exceptions import DownloadError, ImageAssemblyError
 from artsy_tiled_image_downloader.http import create_async_client
 from artsy_tiled_image_downloader.models import ImageMetadata
@@ -169,5 +175,60 @@ def test_download_image_rejects_output_above_pixel_limit(tmp_path: Path) -> None
         async with create_async_client(settings, transport=transport) as client:
             with pytest.raises(DownloadError, match="above limit"):
                 await download_image(client, metadata, settings)
+
+    asyncio.run(run())
+
+
+def test_download_tiles_only_schedules_up_to_concurrency(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    metadata = ImageMetadata(
+        index=0,
+        title="local-test",
+        format="png",
+        url="https://tiles.example/2/",
+        tile_size=1,
+        overlap=0,
+        width=4,
+        height=1,
+        max_zoom_level=2,
+    )
+    settings = DownloaderSettings(output_dir=tmp_path, concurrency=2)
+    started: list[tuple[int, int]] = []
+
+    async def run() -> None:
+        release = asyncio.Event()
+
+        async def fake_download_single_tile(
+            client: httpx.AsyncClient,
+            metadata: ImageMetadata,
+            settings: DownloaderSettings,
+            semaphore: asyncio.Semaphore,
+            col: int,
+            row: int,
+        ) -> DownloadedTile:
+            del client, metadata, settings, semaphore
+            started.append((col, row))
+            await release.wait()
+            return DownloadedTile(col=col, row=row, content=b"tile")
+
+        monkeypatch.setattr(
+            download_module,
+            "_download_single_tile",
+            fake_download_single_tile,
+        )
+        transport = httpx.MockTransport(lambda _: httpx.Response(500))
+        async with create_async_client(settings, transport=transport) as client:
+            task = asyncio.create_task(download_tiles(client, metadata, settings))
+            for _ in range(10):
+                await asyncio.sleep(0)
+                if len(started) == settings.concurrency:
+                    break
+            assert started == [(0, 0), (1, 0)]
+            release.set()
+            tiles = await task
+
+        assert set(tiles) == {(0, 0), (1, 0), (2, 0), (3, 0)}
 
     asyncio.run(run())

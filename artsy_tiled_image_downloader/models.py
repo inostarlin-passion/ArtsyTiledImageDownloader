@@ -41,6 +41,11 @@ class ImageMetadata:
             raise ValueError("image width and height must be greater than 0")
         if self.max_zoom_level < 0:
             raise ValueError("max_zoom_level must not be negative")
+        if any(
+            not direct_url.startswith(("http://", "https://"))
+            for direct_url in self.direct_urls
+        ):
+            raise ValueError("direct image URLs must be HTTP(S) URLs")
 
     @property
     def rows(self) -> int:
