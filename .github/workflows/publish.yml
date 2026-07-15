@@ -87,7 +87,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
-        run: gh release upload "$RELEASE_TAG" dist/* --clobber
+        run: >-
+          gh release upload "$RELEASE_TAG" dist/* --clobber
+          --repo "$GITHUB_REPOSITORY"
 
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
