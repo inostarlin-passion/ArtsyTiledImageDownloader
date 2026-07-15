@@ -4,7 +4,7 @@ import asyncio
 import email.utils
 import math
 import random
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -54,8 +54,8 @@ def retry_delay(attempt: int, response: httpx.Response | None = None) -> float:
                     pass
                 else:
                     if parsed.tzinfo is None:
-                        parsed = parsed.replace(tzinfo=UTC)
-                    seconds = (parsed - datetime.now(UTC)).total_seconds()
+                        parsed = parsed.replace(tzinfo=timezone.utc)
+                    seconds = (parsed - datetime.now(timezone.utc)).total_seconds()
                     return min(max(seconds, 0.0), 30.0)
             else:
                 if math.isfinite(seconds):
