@@ -20,5 +20,5 @@
 - [x] Python 3.12、3.13、3.14 本地通过。
 - [x] Python 3.10-3.14 GitHub CI 与独立构建任务通过。
 - [x] wheel 与 sdist 隔离构建并通过 `twine check --strict`。
-- [ ] 从最终 wheel/sdist 在全新环境安装并运行 CLI（最终构建后执行）。
+- [x] 从 wheel（Python 3.12）与 sdist（Python 3.14）在全新环境安装，`pip check`、CLI 版本和真实元数据通过。
 - [ ] GitHub Release 与 PyPI 2.1.0 发布并核验哈希/安装（最终步骤）。

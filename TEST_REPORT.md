@@ -29,6 +29,7 @@ GitHub CI 矩阵与独立构建任务全部通过（run 29391065137）。
 | 静态检查 | `ruff check .`、`git diff --check` | passed |
 | 覆盖率 | 语句 + 分支；门槛 85% | 88.95% |
 | 构建校验 | 隔离构建 wheel + sdist，Twine strict | passed |
+| 全新环境安装 | Python 3.12 wheel + Python 3.14 sdist，`pip check`、CLI、真实元数据 | passed |
 
 默认跳过项不是失败：`tests/test_live_metadata.py` 仅在
 `RUN_LIVE_TESTS=1` 时访问外部服务，并已在本报告的联网冒烟阶段单独通过。
