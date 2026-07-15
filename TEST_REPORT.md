@@ -4,10 +4,11 @@
 
 ## 结论
 
-发布前本地测试门禁通过。测试覆盖输入校验、边界、重试、响应大小、任务取消、
+发布前本地测试门禁与发布后线上核验均通过。测试覆盖输入校验、边界、重试、响应大小、任务取消、
 资源清理、流水线并发、Deep Zoom 拼接、CLI 端到端、真实 Artsy 元数据和真实
 直图/瓦片下载。Python 3.12、3.13、3.14 本地全量测试通过；Python 3.10-3.14
-GitHub CI 矩阵与独立构建任务全部通过（run 29391065137）。
+GitHub CI 矩阵与独立构建任务全部通过（run 29391174977）。GitHub Release 与
+PyPI 2.1.0 已发布，两端产物哈希一致，并已从公共 PyPI 索引完成全新安装验证。
 
 ## 环境
 
@@ -44,7 +45,7 @@ GitHub CI 矩阵与独立构建任务全部通过（run 29391065137）。
 | 3.13 | macOS arm64 | 116 passed, 1 skipped |
 | 3.14.6 | macOS arm64 | 116 passed, 1 skipped；coverage 88.95% |
 
-GitHub CI 证据：<https://github.com/inostarlin-passion/ArtsyTiledImageDownloader/actions/runs/29391065137>
+GitHub CI 证据：<https://github.com/inostarlin-passion/ArtsyTiledImageDownloader/actions/runs/29391174977>
 
 ## 真实系统验证
 
@@ -89,6 +90,23 @@ RUN_LIVE_TESTS=1 pytest tests/test_live_metadata.py
 python -m build
 python -m twine check --strict dist/*
 ```
+
+## 发布后验证
+
+- 发布工作流：<https://github.com/inostarlin-passion/ArtsyTiledImageDownloader/actions/runs/29391616089>
+- GitHub Release：<https://github.com/inostarlin-passion/ArtsyTiledImageDownloader/releases/tag/v2.1.0>
+- PyPI：<https://pypi.org/project/artsy-tiled-image-downloader/2.1.0/>
+- Release 为正式版而非 draft/prerelease；wheel 与 sdist 均已附加。
+- Trusted Publisher 工作流的测试、构建、Release 附件上传与 PyPI 上传任务全部通过。
+
+| 文件 | 大小 | GitHub / PyPI SHA-256 |
+| --- | ---: | --- |
+| `artsy_tiled_image_downloader-2.1.0-py3-none-any.whl` | 21,946 B | `7280b62367cfc989531a6827b3c9e3fb3cc63bb38e98632c213523c2c5f1c03d` |
+| `artsy_tiled_image_downloader-2.1.0.tar.gz` | 35,150 B | `479f96ad806e1b66e48e4172609fa1ac0c760842f7a62ec79ae4c882a90d2c7c` |
+
+从公共 PyPI simple index 使用 `--no-cache-dir` 安装 2.1.0 后，CLI 输出
+`artsy-downloader 2.1.0`，`pip check` 无依赖冲突；随后执行真实作品的
+`--metadata-only` 系统测试，1.3 秒返回 2547×3543、7×5、共 35 个瓦片。
 
 ## 残余风险
 

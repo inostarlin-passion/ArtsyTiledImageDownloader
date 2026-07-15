@@ -12,6 +12,23 @@
 | 可测试性 | 通过 | HTTP client/transport、settings、metadata、progress callback 可注入；纯函数拆分 URL、尺寸、裁剪、文件名；116 个默认测试、真实联网 opt-in、88.95% 分支覆盖率。 |
 | 可维护性 | 通过 | 模块边界清晰；运行时版本集中于 `_version.py` 并与 pyproject 互测；Ruff、严格 marker、3.10-3.14 CI、tag/version 发布门禁、CHANGELOG 与测试报告齐备。 |
 
+## 外部规范依据
+
+- HTTP 连接池、并发上限与客户端复用依据 HTTPX 官方
+  [Resource Limits](https://www.python-httpx.org/advanced/resource-limits/) 和
+  [Async Support](https://www.python-httpx.org/async/)；实现同时增加应用层有界任务窗口，
+  避免仅限制 socket 而仍创建无界任务。
+- PNG 快速无损保存参数依据 Pillow 官方
+  [Image file formats](https://pillow.readthedocs.io/en/stable/handbook/image-file-formats.html)；
+  级别只影响压缩耗时/体积，不改变像素。
+- wheel、sdist、隔离构建和 Twine 校验依据 PyPA 官方
+  [Packaging flow](https://packaging.python.org/en/latest/flow/) 与
+  [Package formats](https://packaging.python.org/en/latest/discussions/package-formats/)。
+- 无长期 PyPI API token 的发布链路依据 PyPI 官方
+  [Trusted Publishers](https://docs.pypi.org/trusted-publishers/using-a-publisher/)；
+  Release 与附件发布语义依据 GitHub 官方
+  [About releases](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases)。
+
 ## 发布门禁
 
 - [x] README 不含 Star History 或其远程图表 URL。
@@ -21,4 +38,6 @@
 - [x] Python 3.10-3.14 GitHub CI 与独立构建任务通过。
 - [x] wheel 与 sdist 隔离构建并通过 `twine check --strict`。
 - [x] 从 wheel（Python 3.12）与 sdist（Python 3.14）在全新环境安装，`pip check`、CLI 版本和真实元数据通过。
-- [ ] GitHub Release 与 PyPI 2.1.0 发布并核验哈希/安装（最终步骤）。
+- [x] [GitHub Release](https://github.com/inostarlin-passion/ArtsyTiledImageDownloader/releases/tag/v2.1.0)
+  与 [PyPI 2.1.0](https://pypi.org/project/artsy-tiled-image-downloader/2.1.0/) 已发布；
+  两端 wheel/sdist 的大小与 SHA-256 一致，公共 PyPI 全新安装、`pip check`、CLI 和真实元数据通过。
