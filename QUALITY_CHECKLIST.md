@@ -18,7 +18,7 @@
 - [x] 版本由 2.0.0 升至向后兼容的功能版本 2.1.0。
 - [x] 本地单元、集成、系统、联网和覆盖率测试通过。
 - [x] Python 3.12、3.13、3.14 本地通过。
-- [ ] Python 3.10、3.11 GitHub CI 通过（发布提交推送后核验）。
+- [x] Python 3.10-3.14 GitHub CI 与独立构建任务通过。
 - [x] wheel 与 sdist 隔离构建并通过 `twine check --strict`。
 - [ ] 从最终 wheel/sdist 在全新环境安装并运行 CLI（最终构建后执行）。
 - [ ] GitHub Release 与 PyPI 2.1.0 发布并核验哈希/安装（最终步骤）。

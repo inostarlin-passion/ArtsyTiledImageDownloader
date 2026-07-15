@@ -6,8 +6,8 @@
 
 发布前本地测试门禁通过。测试覆盖输入校验、边界、重试、响应大小、任务取消、
 资源清理、流水线并发、Deep Zoom 拼接、CLI 端到端、真实 Artsy 元数据和真实
-直图/瓦片下载。Python 3.12、3.13、3.14 本地全量测试通过；3.10、3.11 已纳入
-GitHub CI 矩阵，将以发布提交的 CI 结果作为最终门禁。
+直图/瓦片下载。Python 3.12、3.13、3.14 本地全量测试通过；Python 3.10-3.14
+GitHub CI 矩阵与独立构建任务全部通过（run 29391065137）。
 
 ## 环境
 
@@ -37,11 +37,13 @@ GitHub CI 矩阵，将以发布提交的 CI 结果作为最终门禁。
 
 | Python | 平台 | 结果 |
 | --- | --- | --- |
-| 3.10 | GitHub Actions / Ubuntu | 已配置，等待发布提交 CI |
-| 3.11 | GitHub Actions / Ubuntu | 已配置，等待发布提交 CI |
+| 3.10 | GitHub Actions / Ubuntu | 116 passed, 1 skipped |
+| 3.11 | GitHub Actions / Ubuntu | 116 passed, 1 skipped |
 | 3.12 | macOS arm64 | 116 passed, 1 skipped |
 | 3.13 | macOS arm64 | 116 passed, 1 skipped |
 | 3.14.6 | macOS arm64 | 116 passed, 1 skipped；coverage 88.95% |
+
+GitHub CI 证据：<https://github.com/inostarlin-passion/ArtsyTiledImageDownloader/actions/runs/29391065137>
 
 ## 真实系统验证
 
