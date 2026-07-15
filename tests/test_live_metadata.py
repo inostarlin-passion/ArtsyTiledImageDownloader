@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = [pytest.mark.system, pytest.mark.live]
+
 
 @pytest.mark.skipif(
     os.environ.get("RUN_LIVE_TESTS") != "1",

@@ -7,11 +7,11 @@ from io import BytesIO
 from pathlib import Path
 
 import httpx
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, UnidentifiedImageError
 
-from .config import IMAGE_HEADERS, DownloaderSettings
+from .config import DEFAULT_PNG_COMPRESSION, IMAGE_HEADERS, DownloaderSettings
 from .exceptions import DownloadError, ImageAssemblyError
-from .http import create_async_client, request_with_retries
+from .http import create_async_client, request_bytes_with_retries
 from .metadata import fetch_metadatas
 from .models import ImageMetadata
 from .paths import atomic_save_image, atomic_write_bytes, output_path_for
@@ -33,6 +33,13 @@ class DownloadedTile:
     content: bytes
 
 
+@dataclass(frozen=True, slots=True)
+class DecodedTile:
+    col: int
+    row: int
+    image: Image.Image
+
+
 def _tile_positions(metadata: ImageMetadata) -> Iterator[tuple[int, int]]:
     for row in range(metadata.rows):
         for col in range(metadata.cols):
@@ -43,18 +50,22 @@ async def _fetch_bytes(
     client: httpx.AsyncClient,
     url: str,
     settings: DownloaderSettings,
+    *,
+    max_bytes: int,
 ) -> bytes:
     try:
-        response = await request_with_retries(
+        return await request_bytes_with_retries(
             client,
             "GET",
             url,
             settings,
+            max_bytes=max_bytes,
             headers=IMAGE_HEADERS,
         )
+    except DownloadError:
+        raise
     except httpx.HTTPError as exc:
         raise DownloadError(f"failed to fetch {url}: {exc}") from exc
-    return response.content
 
 
 def _image_size_from_bytes(content: bytes) -> tuple[int, int]:
@@ -80,13 +91,22 @@ async def download_direct_image(
 
     for direct_url in metadata.direct_urls:
         try:
-            content = await _fetch_bytes(client, direct_url, settings)
+            content = await _fetch_bytes(
+                client,
+                direct_url,
+                settings,
+                max_bytes=settings.max_direct_bytes,
+            )
             if _image_size_from_bytes(content) != expected_size:
                 continue
-            await asyncio.to_thread(atomic_write_bytes, output_path, content)
-            return output_path
         except DownloadError:
             continue
+
+        try:
+            await asyncio.to_thread(atomic_write_bytes, output_path, content)
+        except OSError as exc:
+            raise DownloadError(f"failed to write output image: {output_path}") from exc
+        return output_path
 
     return None
 
@@ -95,13 +115,23 @@ async def _download_single_tile(
     client: httpx.AsyncClient,
     metadata: ImageMetadata,
     settings: DownloaderSettings,
-    semaphore: asyncio.Semaphore,
     col: int,
     row: int,
 ) -> DownloadedTile:
-    async with semaphore:
-        content = await _fetch_bytes(client, metadata.tile_url(col, row), settings)
-        return DownloadedTile(col=col, row=row, content=content)
+    content = await _fetch_bytes(
+        client,
+        metadata.tile_url(col, row),
+        settings,
+        max_bytes=settings.max_tile_bytes,
+    )
+    return DownloadedTile(col=col, row=row, content=content)
+
+
+async def _cancel_tasks(tasks: set[asyncio.Task[DownloadedTile]]) -> None:
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def download_tiles(
@@ -111,7 +141,6 @@ async def download_tiles(
     *,
     progress_callback: ProgressCallback | None = None,
 ) -> dict[tuple[int, int], bytes]:
-    semaphore = asyncio.Semaphore(settings.concurrency)
     positions = _tile_positions(metadata)
     pending: set[asyncio.Task[DownloadedTile]] = set()
 
@@ -122,7 +151,7 @@ async def download_tiles(
             return
         pending.add(
             asyncio.create_task(
-                _download_single_tile(client, metadata, settings, semaphore, col, row)
+                _download_single_tile(client, metadata, settings, col, row)
             )
         )
 
@@ -145,11 +174,8 @@ async def download_tiles(
                 if progress_callback:
                     progress_callback(completed, metadata.tile_count)
                 schedule_next()
-    except Exception:
-        for task in pending:
-            task.cancel()
-        if pending:
-            await asyncio.gather(*pending, return_exceptions=True)
+    except BaseException:
+        await _cancel_tasks(pending)
         raise
 
     if len(tiles) != metadata.tile_count:
@@ -171,20 +197,113 @@ def _tile_crop_box(
     right = left + content_width
     bottom = top + content_height
 
-    if tile_size[0] < right or tile_size[1] < bottom:
+    expected_size = metadata.expected_tile_size(col, row)
+    if tile_size != expected_size:
         raise ImageAssemblyError(
-            "tile is smaller than expected after accounting for overlap: "
-            f"tile=({col},{row}) size={tile_size} crop={(left, top, right, bottom)}"
+            "tile dimensions do not match Deep Zoom metadata: "
+            f"tile=({col},{row}) size={tile_size} expected={expected_size}"
         )
     return left, top, right, bottom
+
+
+def _decode_tile_content(
+    metadata: ImageMetadata,
+    downloaded_tile: DownloadedTile,
+) -> DecodedTile:
+    """Decode and crop a tile to its non-overlapping content rectangle."""
+    col, row, content = (
+        downloaded_tile.col,
+        downloaded_tile.row,
+        downloaded_tile.content,
+    )
+    try:
+        with Image.open(BytesIO(content), formats=[metadata.pil_format]) as raw_tile:
+            crop_box = _tile_crop_box(metadata, col, row, raw_tile.size)
+            raw_tile.load()
+            cropped_tile = raw_tile.crop(crop_box)
+            if cropped_tile.mode == "RGB":
+                tile_image = cropped_tile
+            else:
+                try:
+                    tile_image = cropped_tile.convert("RGB")
+                finally:
+                    cropped_tile.close()
+    except ImageAssemblyError:
+        raise
+    except (OSError, UnidentifiedImageError, ValueError) as exc:
+        raise ImageAssemblyError(f"invalid tile image: {col}_{row}") from exc
+
+    return DecodedTile(col=col, row=row, image=tile_image)
+
+
+def _close_decoded_tiles(results: list[DecodedTile | BaseException]) -> None:
+    for result in results:
+        if isinstance(result, DecodedTile):
+            result.image.close()
+
+
+async def _decode_tiles_bounded(
+    metadata: ImageMetadata,
+    tiles: list[DownloadedTile],
+) -> list[DecodedTile | BaseException]:
+    """Decode a bounded batch without leaking thread results during cancellation."""
+
+    async def run_batch() -> list[DecodedTile | BaseException]:
+        return await asyncio.gather(
+            *(
+                asyncio.to_thread(_decode_tile_content, metadata, tile)
+                for tile in tiles
+            ),
+            return_exceptions=True,
+        )
+
+    decode_task = asyncio.create_task(run_batch())
+    try:
+        return await asyncio.shield(decode_task)
+    except BaseException:
+        # Pillow work running in a worker thread cannot be force-cancelled. Wait for
+        # this bounded batch and close every produced image before propagating.
+        results = await decode_task
+        _close_decoded_tiles(results)
+        raise
+
+
+def _image_save_kwargs(
+    metadata: ImageMetadata,
+    *,
+    png_compression: int,
+) -> dict[str, object]:
+    save_kwargs: dict[str, object] = {"format": metadata.pil_format}
+    if metadata.pil_format == "JPEG":
+        save_kwargs["quality"] = 95
+    elif metadata.pil_format == "PNG":
+        save_kwargs["compress_level"] = png_compression
+    return save_kwargs
+
+
+def _new_canvas(metadata: ImageMetadata) -> Image.Image:
+    try:
+        return Image.new("RGB", (metadata.width, metadata.height), "white")
+    except (MemoryError, ValueError) as exc:
+        raise ImageAssemblyError(
+            f"failed to allocate {metadata.width}x{metadata.height} RGB canvas"
+        ) from exc
 
 
 def stitch_tiles(
     metadata: ImageMetadata,
     tiles: dict[tuple[int, int], bytes],
     output_path: Path,
+    *,
+    png_compression: int = DEFAULT_PNG_COMPRESSION,
 ) -> Path:
-    canvas = Image.new("RGB", (metadata.width, metadata.height), "white")
+    if (
+        not isinstance(png_compression, int)
+        or isinstance(png_compression, bool)
+        or not 0 <= png_compression <= 9
+    ):
+        raise ValueError("png_compression must be between 0 and 9")
+    canvas = _new_canvas(metadata)
 
     try:
         for row in range(metadata.rows):
@@ -193,40 +312,126 @@ def stitch_tiles(
                 if content is None:
                     raise ImageAssemblyError(f"missing downloaded tile: {col}_{row}")
 
+                decoded_tile = _decode_tile_content(
+                    metadata,
+                    DownloadedTile(col=col, row=row, content=content),
+                )
+                tile_image = decoded_tile.image
                 try:
-                    with Image.open(BytesIO(content)) as raw_tile:
-                        tile_image = ImageOps.exif_transpose(raw_tile).convert("RGB")
-                        try:
-                            crop_box = _tile_crop_box(
-                                metadata,
-                                col,
-                                row,
-                                tile_image.size,
-                            )
-                            cropped_tile = tile_image.crop(crop_box)
-                            try:
-                                canvas.paste(
-                                    cropped_tile,
-                                    (
-                                        col * metadata.tile_size,
-                                        row * metadata.tile_size,
-                                    ),
-                                )
-                            finally:
-                                cropped_tile.close()
-                        finally:
-                            tile_image.close()
-                except (OSError, UnidentifiedImageError) as exc:
-                    raise ImageAssemblyError(
-                        f"invalid tile image: {col}_{row}"
-                    ) from exc
+                    canvas.paste(
+                        tile_image,
+                        (
+                            col * metadata.tile_size,
+                            row * metadata.tile_size,
+                        ),
+                    )
+                finally:
+                    tile_image.close()
 
-        save_kwargs: dict[str, object] = {"format": metadata.pil_format}
-        if metadata.pil_format == "JPEG":
-            save_kwargs["quality"] = 95
-
-        atomic_save_image(output_path, canvas, **save_kwargs)
+        try:
+            atomic_save_image(
+                output_path,
+                canvas,
+                **_image_save_kwargs(metadata, png_compression=png_compression),
+            )
+        except OSError as exc:
+            raise ImageAssemblyError(
+                f"failed to save assembled image: {output_path}"
+            ) from exc
         return output_path
+    finally:
+        canvas.close()
+
+
+async def download_and_stitch_tiles(
+    client: httpx.AsyncClient,
+    metadata: ImageMetadata,
+    settings: DownloaderSettings,
+    output_path: Path,
+    *,
+    progress_callback: ProgressCallback | None = None,
+) -> Path:
+    """Pipeline bounded tile downloads, parallel decoding, and serial canvas writes."""
+    canvas = _new_canvas(metadata)
+    positions = _tile_positions(metadata)
+    pending: set[asyncio.Task[DownloadedTile]] = set()
+    completed = 0
+
+    def schedule_next() -> None:
+        try:
+            col, row = next(positions)
+        except StopIteration:
+            return
+        pending.add(
+            asyncio.create_task(
+                _download_single_tile(client, metadata, settings, col, row)
+            )
+        )
+
+    for _ in range(min(settings.concurrency, metadata.tile_count)):
+        schedule_next()
+
+    try:
+        while pending:
+            done, pending = await asyncio.wait(
+                pending,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            downloaded = [task.result() for task in done]
+            # Refill the network window before decoding so both stages overlap.
+            for _ in downloaded:
+                schedule_next()
+
+            decoded = await _decode_tiles_bounded(metadata, downloaded)
+            first_error = next(
+                (result for result in decoded if isinstance(result, BaseException)),
+                None,
+            )
+            if first_error is not None:
+                _close_decoded_tiles(decoded)
+                raise first_error
+
+            try:
+                for tile in decoded:
+                    assert isinstance(tile, DecodedTile)
+                    canvas.paste(
+                        tile.image,
+                        (
+                            tile.col * metadata.tile_size,
+                            tile.row * metadata.tile_size,
+                        ),
+                    )
+
+                    completed += 1
+                    if progress_callback:
+                        progress_callback(completed, metadata.tile_count)
+            finally:
+                _close_decoded_tiles(decoded)
+
+        if completed != metadata.tile_count:
+            raise DownloadError(
+                f"assembled {completed} of {metadata.tile_count} required tiles"
+            )
+
+        try:
+            await asyncio.to_thread(
+                atomic_save_image,
+                output_path,
+                canvas,
+                **_image_save_kwargs(
+                    metadata,
+                    png_compression=settings.png_compression,
+                ),
+            )
+        except OSError as exc:
+            raise ImageAssemblyError(
+                f"failed to save assembled image: {output_path}"
+            ) from exc
+        return output_path
+    except BaseException:
+        await _cancel_tasks(pending)
+        raise
     finally:
         canvas.close()
 
@@ -240,6 +445,11 @@ def _validate_output_size(
         raise DownloadError(
             f"refusing to allocate {metadata.width}x{metadata.height} image "
             f"({pixel_count} pixels) above limit {settings.max_output_pixels}"
+        )
+    if metadata.tile_count > settings.max_tiles:
+        raise DownloadError(
+            f"refusing to schedule {metadata.tile_count} tiles above limit "
+            f"{settings.max_tiles}"
         )
 
 
@@ -257,13 +467,13 @@ async def download_image(
         return DownloadResult(direct_output_path, "direct", metadata)
 
     output_path = output_path_for(metadata, settings.output_dir)
-    tiles = await download_tiles(
+    stitched_path = await download_and_stitch_tiles(
         client,
         metadata,
         settings,
+        output_path,
         progress_callback=progress_callback,
     )
-    stitched_path = await asyncio.to_thread(stitch_tiles, metadata, tiles, output_path)
     return DownloadResult(stitched_path, "tiles", metadata)
 
 

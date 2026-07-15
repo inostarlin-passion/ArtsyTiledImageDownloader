@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "artsy-tiled-image-downloader"
-version = "2.0.0"
+version = "2.1.0"
 description = "Download high-resolution tiled artwork images from Artsy artwork pages."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -45,6 +45,7 @@ Issues = "https://github.com/inostarlin-passion/ArtsyTiledImageDownloader/issues
 dev = [
     "build>=1.3,<2",
     "pytest>=9.1,<10",
+    "pytest-cov>=7,<8",
     "ruff>=0.15.17,<0.16",
     "twine>=6.2,<7",
 ]
@@ -57,7 +58,22 @@ include = ["artsy_tiled_image_downloader*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q --strict-markers"
+markers = [
+    "integration: exercises multiple project components together",
+    "system: exercises the installed CLI or a full local HTTP workflow",
+    "performance: verifies bounded concurrency or pipeline performance properties",
+    "live: accesses the live Artsy service and is opt-in",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["artsy_tiled_image_downloader"]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+skip_covered = true
 
 [tool.ruff]
 line-length = 88

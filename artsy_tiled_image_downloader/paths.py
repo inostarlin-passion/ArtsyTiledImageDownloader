@@ -9,10 +9,20 @@ from PIL import Image
 
 from .models import ImageMetadata
 
+MAX_FILENAME_COMPONENT_LENGTH = 120
+
 
 def safe_filename(value: str, *, fallback: str = "artwork") -> str:
+    if not isinstance(value, str):
+        raise ValueError("filename value must be a string")
+    if not isinstance(fallback, str) or not fallback:
+        raise ValueError("filename fallback must be a non-empty string")
+    safe_fallback = re.sub(r"[^A-Za-z0-9._-]+", "_", fallback).strip("._")
+    if not safe_fallback:
+        raise ValueError("filename fallback must contain a safe character")
     filename = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._")
-    return filename or fallback
+    filename = filename[:MAX_FILENAME_COMPONENT_LENGTH].rstrip("._")
+    return filename or safe_fallback[:MAX_FILENAME_COMPONENT_LENGTH]
 
 
 def output_path_for(metadata: ImageMetadata, output_dir: Path) -> Path:

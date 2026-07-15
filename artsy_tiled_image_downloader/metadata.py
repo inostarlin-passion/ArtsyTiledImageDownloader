@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Iterable
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -11,6 +12,11 @@ from .config import GRAPHQL_HEADERS, DownloaderSettings
 from .exceptions import MetadataError
 from .http import create_async_client, request_with_retries
 from .models import ImageMetadata
+from .validation import is_http_url, validate_http_url
+
+ARTSY_HOSTS = {"artsy.net"}
+MAX_ARTWORK_ID_LENGTH = 256
+ARTWORK_ID_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9_-]*[A-Za-z0-9])?$")
 
 ARTWORK_DEEP_ZOOM_QUERY = """
 query ArtworkDeepZoomQuery($artworkID: String!) {
@@ -56,26 +62,58 @@ query ArtworkDeepZoomQuery($artworkID: String!) {
 
 
 def get_artwork_id(value: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError("artwork URL or slug must be a string")
     cleaned = value.strip()
     if not cleaned:
         raise ValueError("artwork URL or slug must not be empty")
 
-    parsed_url = urlparse(cleaned)
-    path = parsed_url.path if parsed_url.scheme or parsed_url.netloc else cleaned
+    parsed_url = urlsplit(cleaned)
+    is_absolute_url = bool(parsed_url.scheme or parsed_url.netloc)
+    if is_absolute_url:
+        validate_http_url(
+            cleaned,
+            field="artwork URL",
+            allowed_hosts=ARTSY_HOSTS,
+            allow_subdomains=True,
+        )
+        path = parsed_url.path
+    elif cleaned.startswith("/"):
+        path = parsed_url.path
+    else:
+        path = cleaned
+
     parts = [part for part in path.split("/") if part]
 
     if "artwork" in parts:
         artwork_index = parts.index("artwork")
         if artwork_index + 1 < len(parts):
-            return parts[artwork_index + 1]
+            artwork_id = parts[artwork_index + 1]
+        else:
+            artwork_id = ""
+    elif not is_absolute_url and len(parts) == 1:
+        artwork_id = parts[0]
+    else:
+        artwork_id = ""
 
-    if len(parts) == 1:
-        return parts[0]
+    if (
+        not artwork_id
+        or len(artwork_id) > MAX_ARTWORK_ID_LENGTH
+        or ARTWORK_ID_PATTERN.fullmatch(artwork_id) is None
+    ):
+        raise ValueError(f"cannot parse artwork id from url: {value}")
 
-    raise ValueError(f"cannot parse artwork id from url: {value}")
+    return artwork_id
 
 
 def get_max_zoom_level(width: int, height: int) -> int:
+    if (
+        not isinstance(width, int)
+        or isinstance(width, bool)
+        or not isinstance(height, int)
+        or isinstance(height, bool)
+    ):
+        raise ValueError("deep zoom image width and height must be integers")
     if width <= 0 or height <= 0:
         raise ValueError(f"invalid deep zoom image size: {width}x{height}")
     return (max(width, height) - 1).bit_length()
@@ -106,17 +144,36 @@ async def fetch_artwork(
     except ValueError as exc:
         raise MetadataError("metadata response is not valid JSON") from exc
 
+    if not isinstance(payload, dict):
+        raise MetadataError("metadata response must be a JSON object")
+
     errors = payload.get("errors")
     if errors:
-        messages = "; ".join(error.get("message", str(error)) for error in errors)
+        if not isinstance(errors, list):
+            raise MetadataError("graphql errors field is malformed")
+        messages = "; ".join(
+            str(error.get("message", error))
+            if isinstance(error, dict)
+            else str(error)
+            for error in errors
+        )
         raise MetadataError(f"graphql error: {messages}")
 
-    artwork_result = payload.get("data", {}).get("artworkResult")
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise MetadataError("graphql response missing data object")
+
+    artwork_result = data.get("artworkResult")
     if not isinstance(artwork_result, dict):
         raise MetadataError("graphql response missing artworkResult")
 
     if artwork_result.get("__typename") != "Artwork":
-        status_code = (artwork_result.get("requestError") or {}).get("statusCode")
+        request_error = artwork_result.get("requestError")
+        status_code = (
+            request_error.get("statusCode")
+            if isinstance(request_error, dict)
+            else None
+        )
         if status_code:
             raise MetadataError(f"artwork not available, status code: {status_code}")
         typename = artwork_result.get("__typename") or "unknown"
@@ -129,12 +186,15 @@ def _dedupe_urls(urls: Iterable[str | None]) -> tuple[str, ...]:
     seen: set[str] = set()
     direct_urls: list[str] = []
     for url in urls:
-        if not url or url in seen:
+        if not url:
             continue
-        if not url.startswith(("http://", "https://")):
+        if not is_http_url(url):
             continue
-        direct_urls.append(url)
-        seen.add(url)
+        cleaned = url.strip()
+        if cleaned in seen:
+            continue
+        direct_urls.append(cleaned)
+        seen.add(cleaned)
     return tuple(direct_urls)
 
 
@@ -166,26 +226,32 @@ def get_direct_urls_by_image(
 
 def _require_positive_int(source: dict[str, Any], key: str, context: str) -> int:
     value = source.get(key)
-    if not isinstance(value, int) or value <= 0:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise MetadataError(f"{context} missing positive integer field: {key}")
     return value
 
 
 def _require_non_negative_int(source: dict[str, Any], key: str, context: str) -> int:
     value = source.get(key, 0)
-    if not isinstance(value, int) or value < 0:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise MetadataError(f"{context} missing non-negative integer field: {key}")
     return value
 
 
 def _join_level_url(tile_base_url: str, max_zoom_level: int) -> str:
-    base = tile_base_url.strip()
-    if not base.startswith(("http://", "https://")):
-        raise MetadataError(f"invalid Deep Zoom tile URL: {tile_base_url}")
+    try:
+        base = validate_http_url(tile_base_url, field="Deep Zoom tile URL")
+    except ValueError as exc:
+        raise MetadataError(f"invalid Deep Zoom tile URL: {tile_base_url}") from exc
     return f"{base.rstrip('/')}/{max_zoom_level}/"
 
 
 def parse_metadatas(artwork: dict[str, Any], artwork_id: str) -> list[ImageMetadata]:
+    if not isinstance(artwork, dict):
+        raise MetadataError("artwork metadata must be an object")
+    if not isinstance(artwork_id, str) or not artwork_id:
+        raise MetadataError("artwork id must be a non-empty string")
+
     title = str(artwork.get("slug") or artwork_id)
     figures = artwork.get("figures") or []
     direct_urls_by_internal_id, direct_urls_by_index = get_direct_urls_by_image(artwork)
@@ -197,7 +263,13 @@ def parse_metadatas(artwork: dict[str, Any], artwork_id: str) -> list[ImageMetad
         if figure.get("__typename") != "Image":
             continue
 
-        deep_zoom_image = (figure.get("deepZoom") or {}).get("Image")
+        deep_zoom = figure.get("deepZoom")
+        if deep_zoom is None:
+            continue
+        if not isinstance(deep_zoom, dict):
+            raise MetadataError(f"figure {index} has malformed deepZoom")
+
+        deep_zoom_image = deep_zoom.get("Image")
         if not deep_zoom_image:
             continue
         if not isinstance(deep_zoom_image, dict):

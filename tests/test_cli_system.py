@@ -7,7 +7,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
 
+import pytest
 from PIL import Image
+
+pytestmark = pytest.mark.system
 
 
 class QuietHandler(BaseHTTPRequestHandler):

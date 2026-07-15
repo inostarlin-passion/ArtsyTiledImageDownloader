@@ -7,11 +7,16 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
+from ._version import __version__
 from .config import (
     DEFAULT_CONCURRENCY,
+    DEFAULT_MAX_DIRECT_BYTES,
     DEFAULT_MAX_OUTPUT_PIXELS,
+    DEFAULT_MAX_TILE_BYTES,
+    DEFAULT_MAX_TILES,
     DEFAULT_METAPHYSICS_ENDPOINT,
     DEFAULT_OUTPUT_DIR,
+    DEFAULT_PNG_COMPRESSION,
     DEFAULT_RETRIES,
     DEFAULT_TIMEOUT_SECONDS,
     DownloaderSettings,
@@ -29,6 +34,11 @@ def log(message: str = "") -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Download high-resolution tiled artwork images from Artsy."
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
     )
     parser.add_argument("url", help="Artsy artwork URL or artwork slug")
     parser.add_argument(
@@ -69,6 +79,32 @@ def build_parser() -> argparse.ArgumentParser:
         help="maximum stitched output pixels to allocate",
     )
     parser.add_argument(
+        "--max-tiles",
+        type=int,
+        default=DEFAULT_MAX_TILES,
+        help="maximum number of tiles allowed for one image",
+    )
+    parser.add_argument(
+        "--max-tile-bytes",
+        type=int,
+        default=DEFAULT_MAX_TILE_BYTES,
+        help="maximum compressed bytes accepted for one tile",
+    )
+    parser.add_argument(
+        "--max-direct-bytes",
+        type=int,
+        default=DEFAULT_MAX_DIRECT_BYTES,
+        help="maximum bytes accepted for a direct image candidate",
+    )
+    parser.add_argument(
+        "--png-compression",
+        type=int,
+        choices=range(10),
+        default=DEFAULT_PNG_COMPRESSION,
+        metavar="0..9",
+        help="PNG compression level (1 is fastest, 9 is smallest)",
+    )
+    parser.add_argument(
         "--skip-direct",
         action="store_true",
         help="skip same-resolution direct image candidates and always use tiles",
@@ -89,6 +125,10 @@ async def run_async(args: argparse.Namespace) -> int:
         timeout=args.timeout,
         retries=args.retries,
         max_output_pixels=args.max_pixels,
+        max_tiles=args.max_tiles,
+        max_tile_bytes=args.max_tile_bytes,
+        max_direct_bytes=args.max_direct_bytes,
+        png_compression=args.png_compression,
         prefer_direct=not args.skip_direct,
     )
 

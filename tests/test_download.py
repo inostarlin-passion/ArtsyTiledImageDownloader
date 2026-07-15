@@ -19,6 +19,8 @@ from artsy_tiled_image_downloader.exceptions import DownloadError, ImageAssembly
 from artsy_tiled_image_downloader.http import create_async_client
 from artsy_tiled_image_downloader.models import ImageMetadata
 
+pytestmark = pytest.mark.integration
+
 
 def test_stitch_tiles_crops_deep_zoom_overlap(tmp_path: Path, image_bytes) -> None:
     metadata = ImageMetadata(
@@ -71,8 +73,58 @@ def test_stitch_tiles_rejects_too_small_overlap_tile(
         (1, 1): image_bytes((3, 3), (255, 255, 0)),
     }
 
-    with pytest.raises(ImageAssemblyError, match="smaller than expected"):
+    with pytest.raises(ImageAssemblyError, match="dimensions do not match"):
         stitch_tiles(metadata, tiles, tmp_path / "stitched.png")
+
+
+def test_stitch_tiles_rejects_oversized_tile_before_decode(
+    tmp_path: Path,
+    image_bytes,
+) -> None:
+    metadata = ImageMetadata(
+        index=0,
+        title="local-test",
+        format="png",
+        url="https://tiles.example/0/",
+        tile_size=2,
+        overlap=0,
+        width=2,
+        height=2,
+        max_zoom_level=1,
+    )
+
+    with pytest.raises(ImageAssemblyError, match=r"expected=\(2, 2\)"):
+        stitch_tiles(
+            metadata,
+            {(0, 0): image_bytes((100, 100), (1, 2, 3))},
+            tmp_path / "oversized.png",
+        )
+
+
+@pytest.mark.parametrize("png_compression", [True, -1, 10])
+def test_stitch_tiles_validates_png_compression(
+    tmp_path: Path,
+    png_compression: object,
+) -> None:
+    metadata = ImageMetadata(
+        index=0,
+        title="local-test",
+        format="png",
+        url="https://tiles.example/0/",
+        tile_size=1,
+        overlap=0,
+        width=1,
+        height=1,
+        max_zoom_level=0,
+    )
+
+    with pytest.raises(ValueError, match="between 0 and 9"):
+        stitch_tiles(
+            metadata,
+            {},
+            tmp_path / "output.png",
+            png_compression=png_compression,
+        )
 
 
 def test_download_image_uses_same_size_direct_candidate(
@@ -179,6 +231,29 @@ def test_download_image_rejects_output_above_pixel_limit(tmp_path: Path) -> None
     asyncio.run(run())
 
 
+def test_download_image_rejects_tile_count_above_limit(tmp_path: Path) -> None:
+    metadata = ImageMetadata(
+        index=0,
+        title="local-test",
+        format="png",
+        url="https://tiles.example/4/",
+        tile_size=1,
+        overlap=0,
+        width=10,
+        height=10,
+        max_zoom_level=4,
+    )
+    settings = DownloaderSettings(output_dir=tmp_path, max_tiles=99)
+
+    async def run() -> None:
+        transport = httpx.MockTransport(lambda _: None)
+        async with create_async_client(settings, transport=transport) as client:
+            with pytest.raises(DownloadError, match="100 tiles above limit 99"):
+                await download_image(client, metadata, settings)
+
+    asyncio.run(run())
+
+
 def test_download_tiles_only_schedules_up_to_concurrency(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -204,11 +279,10 @@ def test_download_tiles_only_schedules_up_to_concurrency(
             client: httpx.AsyncClient,
             metadata: ImageMetadata,
             settings: DownloaderSettings,
-            semaphore: asyncio.Semaphore,
             col: int,
             row: int,
         ) -> DownloadedTile:
-            del client, metadata, settings, semaphore
+            del client, metadata, settings
             started.append((col, row))
             await release.wait()
             return DownloadedTile(col=col, row=row, content=b"tile")

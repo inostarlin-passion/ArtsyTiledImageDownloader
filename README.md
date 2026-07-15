@@ -6,7 +6,10 @@ Download high-resolution tiled artwork images from Artsy artwork pages for perso
 
 - Uses a reusable HTTPX async client with connection pooling and HTTP/2 support.
 - Validates input URL/slug, metadata fields, tile dimensions, output size limits, retry counts, timeouts, and concurrency.
-- Downloads tiles concurrently and stitches directly from in-memory tile bytes.
+- Uses a bounded download window and overlaps network I/O with parallel tile decoding,
+  while serializing canvas writes for deterministic, thread-safe assembly.
+- Streams every response through configurable byte limits and keeps tile memory bounded
+  by concurrency instead of retaining the entire compressed tile set.
 - Writes final files with an atomic temporary file in the output directory, so a failed save does not leave a partial image at the final path.
 - Splits CLI, metadata parsing, downloading, image assembly, paths, config, and exceptions into testable modules.
 
@@ -56,6 +59,7 @@ Useful options:
 python -m artsy_tiled_image_downloader --metadata-only https://www.artsy.net/artwork/yayoi-kusama-stars-11
 python -m artsy_tiled_image_downloader --output-dir ~/Downloads --concurrency 24 --timeout 30 [url]
 python -m artsy_tiled_image_downloader --skip-direct [url]
+python -m artsy_tiled_image_downloader --png-compression 1 [url]
 ```
 
 Sample output:
@@ -64,7 +68,7 @@ Sample output:
 URL: https://www.artsy.net/artwork/yayoi-kusama-stars-11
 Fetching metadata...
 Images: 1
-Image 1/1: 2547x3543, 14x10 (140 tiles)
+Image 1/1: 2547x3543, 7x5 (35 tiles)
 Downloading...
 Saved: /Users/you/Downloads/output_yayoi-kusama-stars-11_0.jpg (direct)
 Elapsed: 1.0s
@@ -75,10 +79,15 @@ Elapsed: 1.0s
 ```bash
 pip install -e ".[dev]"
 pytest
+pytest --cov --cov-report=term-missing
 ruff check .
 ```
 
-The test suite covers URL parsing, metadata parsing, filename safety, tile crop math, direct-image fallback, in-memory tile stitching, and a local HTTP end-to-end CLI run.
+The test suite covers URL and limit validation, metadata parsing, filename safety,
+Deep Zoom boundary math, retry and response-size behavior, bounded concurrency,
+pipelined assembly, direct-image fallback, packaging, and a local HTTP end-to-end CLI run.
+See [`TEST_REPORT.md`](TEST_REPORT.md) and
+[`QUALITY_CHECKLIST.md`](QUALITY_CHECKLIST.md) for the release evidence.
 
 ## PyPI Release
 
@@ -90,7 +99,7 @@ Build and validate the release artifacts:
 rm -rf build dist *.egg-info
 python -m pip install -e ".[dev]"
 python -m build
-python -m twine check dist/*
+python -m twine check --strict dist/*
 ```
 
 Upload with a PyPI project or account token:
@@ -99,23 +108,20 @@ Upload with a PyPI project or account token:
 TWINE_USERNAME=__token__ TWINE_PASSWORD=pypi-... python -m twine upload dist/*
 ```
 
-This repository also includes `.github/workflows/publish.yml` for PyPI Trusted Publishing. Configure the trusted publisher on PyPI for this repository and publish a GitHub release to upload `dist/*` without storing a long-lived PyPI token in GitHub secrets.
+This repository also includes `.github/workflows/publish.yml` for PyPI Trusted
+Publishing. Configure the `pypi` environment as a trusted publisher for this
+repository. Publishing a `vX.Y.Z` GitHub release then checks that the tag exactly
+matches the package version before building and uploading both the wheel and sdist.
 
 ## Temporary Data
 
-The downloader no longer stores tiles in a process-wide temporary directory.
-Tiles are downloaded into memory as compressed bytes and decoded one at a time while stitching.
-The only temporary files are short-lived files created beside the final output for atomic replacement.
+The downloader does not store tiles in a process-wide temporary directory.
+Only a concurrency-bounded set of compressed and decoded tiles is held while the
+download/decode/stitch pipeline is active. Decoded images are closed immediately
+after they are pasted. The only temporary files are short-lived files created beside
+the final output for atomic replacement.
 
 If a future very-large-image mode needs disk-backed tile caching, prefer `tempfile.TemporaryDirectory()` as a scoped context manager rather than a fixed folder under `~/Downloads`.
-
-## Star History
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=inostarlin-passion/artsytiledimagedownloader&type=date&theme=dark&legend=top-left" />
-  <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=inostarlin-passion/artsytiledimagedownloader&type=date&legend=top-left" />
-  <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=inostarlin-passion/artsytiledimagedownloader&type=date&legend=top-left" />
-</picture>
 
 ## Disclaimer
 

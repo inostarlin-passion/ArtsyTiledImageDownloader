@@ -10,5 +10,9 @@ class DownloadError(ArtsyDownloaderError):
     """Raised when an image or one of its tiles cannot be downloaded."""
 
 
+class ResponseTooLargeError(DownloadError):
+    """Raised when an HTTP image response exceeds its configured byte limit."""
+
+
 class ImageAssemblyError(ArtsyDownloaderError):
     """Raised when downloaded image tiles cannot be stitched safely."""

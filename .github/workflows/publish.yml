@@ -4,6 +4,11 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing v-prefixed release tag to publish"
+        required: true
+        type: string
 
 jobs:
   test-build:
@@ -13,6 +18,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -23,11 +30,27 @@ jobs:
       - name: Install package and release tools
         run: python -m pip install -e ".[dev]"
 
+      - name: Validate release tag and package version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+          expected_tag = f"v{version}"
+          actual_tag = os.environ["RELEASE_TAG"]
+          if actual_tag != expected_tag:
+              raise SystemExit(f"release tag {actual_tag!r} does not match {expected_tag!r}")
+          PY
+
       - name: Lint
         run: python -m ruff check .
 
       - name: Test
-        run: python -m pytest
+        run: python -m pytest --cov --cov-report=term-missing
 
       - name: Build distributions
         run: python -m build
@@ -50,6 +73,7 @@ jobs:
       name: pypi
       url: https://pypi.org/project/artsy-tiled-image-downloader/
     permissions:
+      contents: write
       id-token: write
 
     steps:
@@ -58,6 +82,12 @@ jobs:
         with:
           name: python-distributions
           path: dist/
+
+      - name: Attach distributions to GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: gh release upload "$RELEASE_TAG" dist/* --clobber
 
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
