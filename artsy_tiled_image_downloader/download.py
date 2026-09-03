@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -68,6 +68,22 @@ async def _fetch_bytes(
         raise DownloadError(f"failed to fetch {url}: {exc}") from exc
 
 
+async def _fetch_bytes_with_limiter(
+    client: httpx.AsyncClient,
+    url: str,
+    settings: DownloaderSettings,
+    *,
+    max_bytes: int,
+    request_limiter: asyncio.Semaphore | None,
+) -> bytes:
+    """Fetch one object while optionally sharing a process-level request budget."""
+    if request_limiter is None:
+        return await _fetch_bytes(client, url, settings, max_bytes=max_bytes)
+
+    async with request_limiter:
+        return await _fetch_bytes(client, url, settings, max_bytes=max_bytes)
+
+
 def _image_size_from_bytes(content: bytes) -> tuple[int, int]:
     try:
         with Image.open(BytesIO(content)) as image:
@@ -82,6 +98,8 @@ async def download_direct_image(
     client: httpx.AsyncClient,
     metadata: ImageMetadata,
     settings: DownloaderSettings,
+    *,
+    request_limiter: asyncio.Semaphore | None = None,
 ) -> Path | None:
     if not settings.prefer_direct or not metadata.direct_urls:
         return None
@@ -91,11 +109,12 @@ async def download_direct_image(
 
     for direct_url in metadata.direct_urls:
         try:
-            content = await _fetch_bytes(
+            content = await _fetch_bytes_with_limiter(
                 client,
                 direct_url,
                 settings,
                 max_bytes=settings.max_direct_bytes,
+                request_limiter=request_limiter,
             )
             if _image_size_from_bytes(content) != expected_size:
                 continue
@@ -117,12 +136,15 @@ async def _download_single_tile(
     settings: DownloaderSettings,
     col: int,
     row: int,
+    *,
+    request_limiter: asyncio.Semaphore | None = None,
 ) -> DownloadedTile:
-    content = await _fetch_bytes(
+    content = await _fetch_bytes_with_limiter(
         client,
         metadata.tile_url(col, row),
         settings,
         max_bytes=settings.max_tile_bytes,
+        request_limiter=request_limiter,
     )
     return DownloadedTile(col=col, row=row, content=content)
 
@@ -140,6 +162,7 @@ async def download_tiles(
     settings: DownloaderSettings,
     *,
     progress_callback: ProgressCallback | None = None,
+    request_limiter: asyncio.Semaphore | None = None,
 ) -> dict[tuple[int, int], bytes]:
     positions = _tile_positions(metadata)
     pending: set[asyncio.Task[DownloadedTile]] = set()
@@ -149,11 +172,22 @@ async def download_tiles(
             col, row = next(positions)
         except StopIteration:
             return
-        pending.add(
-            asyncio.create_task(
+        if request_limiter is None:
+            task = asyncio.create_task(
                 _download_single_tile(client, metadata, settings, col, row)
             )
-        )
+        else:
+            task = asyncio.create_task(
+                _download_single_tile(
+                    client,
+                    metadata,
+                    settings,
+                    col,
+                    row,
+                    request_limiter=request_limiter,
+                )
+            )
+        pending.add(task)
 
     for _ in range(min(settings.concurrency, metadata.tile_count)):
         schedule_next()
@@ -350,6 +384,7 @@ async def download_and_stitch_tiles(
     output_path: Path,
     *,
     progress_callback: ProgressCallback | None = None,
+    request_limiter: asyncio.Semaphore | None = None,
 ) -> Path:
     """Pipeline bounded tile downloads, parallel decoding, and serial canvas writes."""
     canvas = _new_canvas(metadata)
@@ -362,11 +397,22 @@ async def download_and_stitch_tiles(
             col, row = next(positions)
         except StopIteration:
             return
-        pending.add(
-            asyncio.create_task(
+        if request_limiter is None:
+            task = asyncio.create_task(
                 _download_single_tile(client, metadata, settings, col, row)
             )
-        )
+        else:
+            task = asyncio.create_task(
+                _download_single_tile(
+                    client,
+                    metadata,
+                    settings,
+                    col,
+                    row,
+                    request_limiter=request_limiter,
+                )
+            )
+        pending.add(task)
 
     for _ in range(min(settings.concurrency, metadata.tile_count)):
         schedule_next()
@@ -459,10 +505,16 @@ async def download_image(
     settings: DownloaderSettings,
     *,
     progress_callback: ProgressCallback | None = None,
+    request_limiter: asyncio.Semaphore | None = None,
 ) -> DownloadResult:
     _validate_output_size(metadata, settings)
 
-    direct_output_path = await download_direct_image(client, metadata, settings)
+    direct_output_path = await download_direct_image(
+        client,
+        metadata,
+        settings,
+        request_limiter=request_limiter,
+    )
     if direct_output_path:
         return DownloadResult(direct_output_path, "direct", metadata)
 
@@ -473,8 +525,57 @@ async def download_image(
         settings,
         output_path,
         progress_callback=progress_callback,
+        request_limiter=request_limiter,
     )
     return DownloadResult(stitched_path, "tiles", metadata)
+
+
+async def download_images(
+    client: httpx.AsyncClient,
+    metadatas: Sequence[ImageMetadata],
+    settings: DownloaderSettings,
+    *,
+    progress_callback: ProgressCallback | None = None,
+) -> list[DownloadResult]:
+    """Download an artwork's images concurrently without exceeding request limits."""
+    metadata_list = list(metadatas)
+    if not metadata_list:
+        return []
+
+    worker_count = min(settings.image_concurrency, len(metadata_list))
+    request_limiter = asyncio.Semaphore(settings.concurrency)
+    work_items = iter(enumerate(metadata_list))
+    results: list[DownloadResult | None] = [None] * len(metadata_list)
+
+    async def worker() -> None:
+        while True:
+            try:
+                index, metadata = next(work_items)
+            except StopIteration:
+                return
+            results[index] = await download_image(
+                client,
+                metadata,
+                settings,
+                progress_callback=progress_callback,
+                request_limiter=request_limiter,
+            )
+
+    tasks = [asyncio.create_task(worker()) for _ in range(worker_count)]
+    try:
+        await asyncio.gather(*tasks)
+    except BaseException:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
+
+    ordered_results: list[DownloadResult] = []
+    for result in results:
+        if result is None:
+            raise DownloadError("artwork image worker did not produce a result")
+        ordered_results.append(result)
+    return ordered_results
 
 
 async def download_artwork(
@@ -488,27 +589,21 @@ async def download_artwork(
 
     if client is not None:
         metadatas = await fetch_metadatas(url, settings, client=client)
-        return [
-            await download_image(
-                client,
-                metadata,
-                settings,
-                progress_callback=progress_callback,
-            )
-            for metadata in metadatas
-        ]
+        return await download_images(
+            client,
+            metadatas,
+            settings,
+            progress_callback=progress_callback,
+        )
 
     async with create_async_client(settings) as managed_client:
         metadatas = await fetch_metadatas(url, settings, client=managed_client)
-        return [
-            await download_image(
-                managed_client,
-                metadata,
-                settings,
-                progress_callback=progress_callback,
-            )
-            for metadata in metadatas
-        ]
+        return await download_images(
+            managed_client,
+            metadatas,
+            settings,
+            progress_callback=progress_callback,
+        )
 
 
 def download_full_image(

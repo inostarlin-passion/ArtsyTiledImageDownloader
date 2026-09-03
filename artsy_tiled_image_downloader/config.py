@@ -11,7 +11,8 @@ DEFAULT_USER_AGENT = f"ArtsyTiledImageDownloader/{__version__}"
 DEFAULT_METAPHYSICS_ENDPOINT = "https://metaphysics-production.artsy.net/v2"
 DEFAULT_OUTPUT_DIR = Path.home() / "Downloads"
 DEFAULT_TIMEOUT_SECONDS = 20.0
-DEFAULT_CONCURRENCY = 24
+DEFAULT_CONCURRENCY = 64
+DEFAULT_IMAGE_CONCURRENCY = 4
 DEFAULT_RETRIES = 3
 DEFAULT_MAX_OUTPUT_PIXELS = 300_000_000
 DEFAULT_MAX_TILES = 100_000
@@ -19,6 +20,7 @@ DEFAULT_MAX_TILE_BYTES = 16 * 1024 * 1024
 DEFAULT_MAX_DIRECT_BYTES = 512 * 1024 * 1024
 DEFAULT_PNG_COMPRESSION = 1
 MAX_ALLOWED_CONCURRENCY = 64
+MAX_ALLOWED_IMAGE_CONCURRENCY = 8
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +37,7 @@ class DownloaderSettings:
     png_compression: int = DEFAULT_PNG_COMPRESSION
     user_agent: str = DEFAULT_USER_AGENT
     prefer_direct: bool = True
+    image_concurrency: int = DEFAULT_IMAGE_CONCURRENCY
 
     def __post_init__(self) -> None:
         try:
@@ -57,6 +60,15 @@ class DownloaderSettings:
         if not 1 <= self.concurrency <= MAX_ALLOWED_CONCURRENCY:
             raise ValueError(
                 f"concurrency must be between 1 and {MAX_ALLOWED_CONCURRENCY}"
+            )
+        if not isinstance(self.image_concurrency, int) or isinstance(
+            self.image_concurrency, bool
+        ):
+            raise ValueError("image_concurrency must be an integer")
+        if not 1 <= self.image_concurrency <= MAX_ALLOWED_IMAGE_CONCURRENCY:
+            raise ValueError(
+                "image_concurrency must be between 1 and "
+                f"{MAX_ALLOWED_IMAGE_CONCURRENCY}"
             )
         if (
             not isinstance(self.timeout, (int, float))

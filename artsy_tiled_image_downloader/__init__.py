@@ -2,8 +2,18 @@
 
 from ._version import __version__
 from .config import DownloaderSettings
-from .download import DownloadResult, download_artwork, download_full_image
-from .metadata import fetch_metadatas, get_artwork_id, get_max_zoom_level, get_metadatas
+from .download import (
+    DownloadResult,
+    download_artwork,
+    download_full_image,
+    download_images,
+)
+from .metadata import (
+    fetch_metadatas,
+    get_artwork_id,
+    get_max_zoom_level,
+    get_metadatas,
+)
 from .models import ImageMetadata
 
 __all__ = [
@@ -13,6 +23,7 @@ __all__ = [
     "__version__",
     "download_artwork",
     "download_full_image",
+    "download_images",
     "fetch_metadatas",
     "get_artwork_id",
     "get_max_zoom_level",

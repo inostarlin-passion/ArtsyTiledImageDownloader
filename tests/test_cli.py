@@ -60,23 +60,23 @@ def test_run_async_reports_metadata_and_download_progress(
     async def fake_fetch(*args: object, **kwargs: object) -> list[ImageMetadata]:
         return [metadata]
 
-    async def fake_download(
+    async def fake_downloads(
         client: object,
-        image_metadata: ImageMetadata,
+        metadatas: list[ImageMetadata],
         settings: object,
         *,
         progress_callback,
-    ) -> DownloadResult:
+    ) -> list[DownloadResult]:
         nonlocal download_calls
         del client, settings
-        download_calls += 1
+        download_calls += len(metadatas)
         progress_callback(1, 2)
         progress_callback(2, 2)
-        return DownloadResult(output, "tiles", image_metadata)
+        return [DownloadResult(output, "tiles", metadata) for metadata in metadatas]
 
     monkeypatch.setattr(cli_module, "create_async_client", lambda _: _ClientContext())
     monkeypatch.setattr(cli_module, "fetch_metadatas", fake_fetch)
-    monkeypatch.setattr(cli_module, "download_image", fake_download)
+    monkeypatch.setattr(cli_module, "download_images", fake_downloads)
 
     argv = ["--output-dir", str(tmp_path)]
     if metadata_only:

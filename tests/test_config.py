@@ -17,6 +17,8 @@ from artsy_tiled_image_downloader.config import DownloaderSettings
         ("user_agent", " ", "must not be empty"),
         ("concurrency", True, "concurrency"),
         ("concurrency", 65, "between 1 and 64"),
+        ("image_concurrency", True, "image_concurrency"),
+        ("image_concurrency", 9, "between 1 and 8"),
         ("timeout", False, "timeout"),
         ("retries", True, "retries"),
         ("retries", 11, "between 1 and 10"),

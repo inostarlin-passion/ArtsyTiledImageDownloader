@@ -6,8 +6,11 @@ Download high-resolution tiled artwork images from Artsy artwork pages for perso
 
 - Uses a reusable HTTPX async client with connection pooling and HTTP/2 support.
 - Validates input URL/slug, metadata fields, tile dimensions, output size limits, retry counts, timeouts, and concurrency.
-- Uses a bounded download window and overlaps network I/O with parallel tile decoding,
-  while serializing canvas writes for deterministic, thread-safe assembly.
+- Uses a bounded 64-request download window by default and overlaps network I/O with
+  parallel tile decoding, while serializing canvas writes for deterministic,
+  thread-safe assembly.
+- Downloads up to four images from one artwork concurrently while sharing the same
+  request budget; use `--image-concurrency` to tune that limit.
 - Streams every response through configurable byte limits and keeps tile memory bounded
   by concurrency instead of retaining the entire compressed tile set.
 - Writes final files with an atomic temporary file in the output directory, so a failed save does not leave a partial image at the final path.
@@ -57,7 +60,7 @@ Useful options:
 
 ```bash
 python -m artsy_tiled_image_downloader --metadata-only https://www.artsy.net/artwork/yayoi-kusama-stars-11
-python -m artsy_tiled_image_downloader --output-dir ~/Downloads --concurrency 24 --timeout 30 [url]
+python -m artsy_tiled_image_downloader --output-dir ~/Downloads --concurrency 64 --image-concurrency 4 --timeout 30 [url]
 python -m artsy_tiled_image_downloader --skip-direct [url]
 python -m artsy_tiled_image_downloader --png-compression 1 [url]
 ```
@@ -88,6 +91,10 @@ Deep Zoom boundary math, retry and response-size behavior, bounded concurrency,
 pipelined assembly, direct-image fallback, packaging, and a local HTTP end-to-end CLI run.
 See [`TEST_REPORT.md`](TEST_REPORT.md) and
 [`QUALITY_CHECKLIST.md`](QUALITY_CHECKLIST.md) for the release evidence.
+The current download-time optimization evidence is in
+[`reports/technical_design_document.md`](reports/technical_design_document.md),
+[`reports/test_case_specification.md`](reports/test_case_specification.md), and
+[`reports/test_completion_report.md`](reports/test_completion_report.md).
 
 ## PyPI Release
 

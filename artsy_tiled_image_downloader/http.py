@@ -139,6 +139,18 @@ async def request_bytes_with_retries(
                         f"above limit {max_bytes}"
                     )
 
+                # CDN image responses normally include Content-Length.  Reading
+                # those responses in one operation avoids allocating a bytearray
+                # and iterating a stream chunk by chunk, while retaining the
+                # post-read check for a dishonest or transformed response.
+                if declared_length is not None:
+                    content = await response.aread()
+                    if len(content) > max_bytes:
+                        raise ResponseTooLargeError(
+                            f"response from {url} exceeds byte limit {max_bytes}"
+                        )
+                    return content
+
                 content = bytearray()
                 async for chunk in response.aiter_bytes():
                     if len(content) + len(chunk) > max_bytes:

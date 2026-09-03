@@ -10,6 +10,7 @@ from pathlib import Path
 from ._version import __version__
 from .config import (
     DEFAULT_CONCURRENCY,
+    DEFAULT_IMAGE_CONCURRENCY,
     DEFAULT_MAX_DIRECT_BYTES,
     DEFAULT_MAX_OUTPUT_PIXELS,
     DEFAULT_MAX_TILE_BYTES,
@@ -21,7 +22,7 @@ from .config import (
     DEFAULT_TIMEOUT_SECONDS,
     DownloaderSettings,
 )
-from .download import download_image
+from .download import download_images
 from .exceptions import ArtsyDownloaderError
 from .http import create_async_client
 from .metadata import fetch_metadatas
@@ -54,6 +55,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=DEFAULT_CONCURRENCY,
         help="maximum concurrent tile requests",
+    )
+    parser.add_argument(
+        "--image-concurrency",
+        type=int,
+        default=DEFAULT_IMAGE_CONCURRENCY,
+        help="maximum artwork images downloaded at once",
     )
     parser.add_argument(
         "--timeout",
@@ -122,6 +129,7 @@ async def run_async(args: argparse.Namespace) -> int:
         output_dir=args.output_dir,
         endpoint=args.endpoint,
         concurrency=args.concurrency,
+        image_concurrency=args.image_concurrency,
         timeout=args.timeout,
         retries=args.retries,
         max_output_pixels=args.max_pixels,
@@ -148,21 +156,24 @@ async def run_async(args: argparse.Namespace) -> int:
             )
             log(f"Image {i}/{len(image_metadatas)}: {resolution}, {tile_info}")
 
-            if args.metadata_only:
-                continue
+        if args.metadata_only:
+            log(f"Elapsed: {time.perf_counter() - started:.1f}s")
+            return 0
 
+        for _ in image_metadatas:
             log("Downloading...")
 
-            def on_progress(done: int, total: int) -> None:
-                if done == total or done % max(1, total // 10) == 0:
-                    log(f"Tiles: {done}/{total}")
+        def on_progress(done: int, total: int) -> None:
+            if done == total or done % max(1, total // 10) == 0:
+                log(f"Tiles: {done}/{total}")
 
-            result = await download_image(
-                client,
-                image_metadata,
-                settings,
-                progress_callback=on_progress,
-            )
+        results = await download_images(
+            client,
+            image_metadatas,
+            settings,
+            progress_callback=on_progress,
+        )
+        for result in results:
             log(f"Saved: {result.output_path} ({result.method})")
 
     log(f"Elapsed: {time.perf_counter() - started:.1f}s")
