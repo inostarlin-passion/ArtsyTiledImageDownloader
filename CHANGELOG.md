@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented here.
 
+## 2.1.1 - 2026-09-20
+
+### Added
+
+- Configurable concurrent downloading of multiple artwork images, with a new
+  `--image-concurrency` CLI option and a default of 4 workers.
+- Performance acceptance tests and reproducible benchmark coverage for the
+  multi-image download path.
+
+### Changed
+
+- Increased the default tile-request concurrency from 24 to 64 while retaining
+  the 64-request hard limit.
+- Shared the request budget across concurrently downloaded images so the total
+  number of active HTTP requests remains bounded.
+- Preserved metadata order in multi-image CLI results and aligned library and
+  CLI defaults.
+
 ## 2.1.0 - 2026-07-15
 
 ### Added

@@ -40,7 +40,7 @@ def test_parser_exposes_version_and_rejects_bad_compression(
 
     with pytest.raises(SystemExit, match="0"):
         parser.parse_args(["--version"])
-    assert "2.1.0" in capsys.readouterr().out
+    assert "2.1.1" in capsys.readouterr().out
 
     with pytest.raises(SystemExit, match="2"):
         parser.parse_args(["--png-compression", "10", "slug"])
