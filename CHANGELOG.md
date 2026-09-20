@@ -20,6 +20,11 @@ All notable changes to this project are documented here.
 - Preserved metadata order in multi-image CLI results and aligned library and
   CLI defaults.
 
+### Fixed
+
+- Made the performance acceptance benchmark deterministic across CI platforms
+  by separating its synthetic network-delay signal from image I/O jitter.
+
 ## 2.1.0 - 2026-07-15
 
 ### Added
