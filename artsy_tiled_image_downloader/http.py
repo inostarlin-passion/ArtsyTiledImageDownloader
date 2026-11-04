@@ -4,13 +4,15 @@ import asyncio
 import email.utils
 import math
 import random
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 
 import httpx
 
 from .config import DownloaderSettings
-from .exceptions import ResponseTooLargeError
+from .exceptions import DownloadError, ResponseTooLargeError
 
 
 def create_async_client(
@@ -107,6 +109,36 @@ def _declared_content_length(response: httpx.Response) -> int | None:
     return length if length >= 0 else None
 
 
+@asynccontextmanager
+async def _stream_response(
+    client: httpx.AsyncClient,
+    request: httpx.Request,
+    *,
+    auth: Any,
+    follow_redirects: bool,
+) -> AsyncIterator[httpx.Response]:
+    # HTTPX drains intermediate redirect responses when following automatically.
+    response = await client.send(
+        request, auth=auth, stream=True, follow_redirects=False
+    )
+    for _ in range(client.max_redirects):
+        next_request = response.next_request
+        if not follow_redirects or next_request is None:
+            break
+        await response.aclose()
+        response = await client.send(
+            next_request, auth=None, stream=True, follow_redirects=False
+        )
+    try:
+        if follow_redirects and response.next_request is not None:
+            raise httpx.TooManyRedirects(
+                "Exceeded maximum allowed redirects.", request=response.request
+            )
+        yield response
+    finally:
+        await response.aclose()
+
+
 async def request_bytes_with_retries(
     client: httpx.AsyncClient,
     method: str,
@@ -124,12 +156,20 @@ async def request_bytes_with_retries(
     ):
         raise ValueError("max_bytes must be greater than 0")
 
+    auth = kwargs.pop("auth", httpx.USE_CLIENT_DEFAULT)
+    follow_redirects = kwargs.pop("follow_redirects", httpx.USE_CLIENT_DEFAULT)
+    if follow_redirects is httpx.USE_CLIENT_DEFAULT:
+        follow_redirects = client.follow_redirects
     last_error: Exception | None = None
 
     for attempt in range(settings.retries):
         retry_response: httpx.Response | None = None
         try:
-            async with client.stream(method, url, **kwargs) as response:
+            request = client.build_request(method, url, **kwargs)
+            request.headers["Accept-Encoding"] = "identity"
+            async with _stream_response(
+                client, request, auth=auth, follow_redirects=follow_redirects
+            ) as response:
                 response.raise_for_status()
 
                 declared_length = _declared_content_length(response)
@@ -139,17 +179,9 @@ async def request_bytes_with_retries(
                         f"above limit {max_bytes}"
                     )
 
-                # CDN image responses normally include Content-Length.  Reading
-                # those responses in one operation avoids allocating a bytearray
-                # and iterating a stream chunk by chunk, while retaining the
-                # post-read check for a dishonest or transformed response.
-                if declared_length is not None:
-                    content = await response.aread()
-                    if len(content) > max_bytes:
-                        raise ResponseTooLargeError(
-                            f"response from {url} exceeds byte limit {max_bytes}"
-                        )
-                    return content
+                encoding = response.headers.get("Content-Encoding", "identity")
+                if encoding.strip().lower() != "identity":
+                    raise DownloadError(f"unsupported Content-Encoding: {encoding}")
 
                 content = bytearray()
                 async for chunk in response.aiter_bytes():

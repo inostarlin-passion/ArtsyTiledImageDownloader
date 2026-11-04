@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented here.
 
+## 2.1.2 - 2026-11-04
+
+### Added
+
+- Added `--max-canvas-bytes` and `--max-metadata-bytes` to configure the shared
+  full-image pixel buffer budget and the GraphQL response size limit.
+
+### Fixed
+
+- Match direct image candidates by image ID and validate the actual format,
+  dimensions, and pixel decoding before saving. Rejected candidates fall back
+  to tiles.
+- Enforce response byte limits during streaming and close redirect responses
+  without reading their bodies.
+- Keep existing files intact when saving is cancelled before the atomic commit.
+- Preserve tile transparency when assembling PNG and WebP outputs.
+
 ## 2.1.1 - 2026-09-20
 
 ### Added

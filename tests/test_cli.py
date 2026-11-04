@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 import artsy_tiled_image_downloader.cli as cli_module
+from artsy_tiled_image_downloader import __version__
 from artsy_tiled_image_downloader.download import DownloadResult
 from artsy_tiled_image_downloader.exceptions import DownloadError
 from artsy_tiled_image_downloader.models import ImageMetadata
@@ -40,7 +41,7 @@ def test_parser_exposes_version_and_rejects_bad_compression(
 
     with pytest.raises(SystemExit, match="0"):
         parser.parse_args(["--version"])
-    assert "2.1.1" in capsys.readouterr().out
+    assert capsys.readouterr().out.strip() == f"{parser.prog} {__version__}"
 
     with pytest.raises(SystemExit, match="2"):
         parser.parse_args(["--png-compression", "10", "slug"])

@@ -11,7 +11,9 @@ from ._version import __version__
 from .config import (
     DEFAULT_CONCURRENCY,
     DEFAULT_IMAGE_CONCURRENCY,
+    DEFAULT_MAX_CANVAS_BYTES,
     DEFAULT_MAX_DIRECT_BYTES,
+    DEFAULT_MAX_METADATA_BYTES,
     DEFAULT_MAX_OUTPUT_PIXELS,
     DEFAULT_MAX_TILE_BYTES,
     DEFAULT_MAX_TILES,
@@ -86,6 +88,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="maximum stitched output pixels to allocate",
     )
     parser.add_argument(
+        "--max-canvas-bytes",
+        type=int,
+        default=DEFAULT_MAX_CANVAS_BYTES,
+        help="shared budget for full-image pixel buffers",
+    )
+    parser.add_argument(
+        "--max-metadata-bytes",
+        type=int,
+        default=DEFAULT_MAX_METADATA_BYTES,
+        help="maximum bytes accepted for a metadata response",
+    )
+    parser.add_argument(
         "--max-tiles",
         type=int,
         default=DEFAULT_MAX_TILES,
@@ -134,6 +148,8 @@ async def run_async(args: argparse.Namespace) -> int:
         retries=args.retries,
         max_output_pixels=args.max_pixels,
         max_tiles=args.max_tiles,
+        max_canvas_bytes=args.max_canvas_bytes,
+        max_metadata_bytes=args.max_metadata_bytes,
         max_tile_bytes=args.max_tile_bytes,
         max_direct_bytes=args.max_direct_bytes,
         png_compression=args.png_compression,

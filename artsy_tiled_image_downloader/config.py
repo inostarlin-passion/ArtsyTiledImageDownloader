@@ -15,6 +15,8 @@ DEFAULT_CONCURRENCY = 64
 DEFAULT_IMAGE_CONCURRENCY = 4
 DEFAULT_RETRIES = 3
 DEFAULT_MAX_OUTPUT_PIXELS = 300_000_000
+DEFAULT_MAX_CANVAS_BYTES = 2560 * 1024 * 1024
+DEFAULT_MAX_METADATA_BYTES = 8 * 1024 * 1024
 DEFAULT_MAX_TILES = 100_000
 DEFAULT_MAX_TILE_BYTES = 16 * 1024 * 1024
 DEFAULT_MAX_DIRECT_BYTES = 512 * 1024 * 1024
@@ -38,6 +40,9 @@ class DownloaderSettings:
     user_agent: str = DEFAULT_USER_AGENT
     prefer_direct: bool = True
     image_concurrency: int = DEFAULT_IMAGE_CONCURRENCY
+
+    max_canvas_bytes: int = DEFAULT_MAX_CANVAS_BYTES
+    max_metadata_bytes: int = DEFAULT_MAX_METADATA_BYTES
 
     def __post_init__(self) -> None:
         try:
@@ -84,6 +89,8 @@ class DownloaderSettings:
 
         positive_integer_fields = {
             "max_output_pixels": self.max_output_pixels,
+            "max_canvas_bytes": self.max_canvas_bytes,
+            "max_metadata_bytes": self.max_metadata_bytes,
             "max_tiles": self.max_tiles,
             "max_tile_bytes": self.max_tile_bytes,
             "max_direct_bytes": self.max_direct_bytes,

@@ -7,14 +7,19 @@ from io import BytesIO
 from pathlib import Path
 
 import httpx
-from PIL import Image, UnidentifiedImageError
+from PIL import Image
 
 from .config import DEFAULT_PNG_COMPRESSION, IMAGE_HEADERS, DownloaderSettings
 from .exceptions import DownloadError, ImageAssemblyError
 from .http import create_async_client, request_bytes_with_retries
 from .metadata import fetch_metadatas
 from .models import ImageMetadata
-from .paths import atomic_save_image, atomic_write_bytes, output_path_for
+from .paths import (
+    async_atomic_output,
+    atomic_save_image,
+    output_path_for,
+    wait_for_worker,
+)
 
 ProgressCallback = Callable[[int, int], None]
 
@@ -84,14 +89,26 @@ async def _fetch_bytes_with_limiter(
         return await _fetch_bytes(client, url, settings, max_bytes=max_bytes)
 
 
-def _image_size_from_bytes(content: bytes) -> tuple[int, int]:
+def _validate_direct_candidate(content: bytes, metadata: ImageMetadata) -> bool:
+    formats = [metadata.pil_format]
     try:
-        with Image.open(BytesIO(content)) as image:
-            size = image.size
+        with Image.open(BytesIO(content), formats=formats) as image:
+            if image.size != (metadata.width, metadata.height):
+                return False
             image.verify()
-            return size
-    except (OSError, UnidentifiedImageError) as exc:
-        raise DownloadError("downloaded direct image is not a valid image") from exc
+        # verify() checks structure where supported. Reopen for actual pixel decoding.
+        with Image.open(BytesIO(content), formats=formats) as image:
+            image.load()
+    except (
+        Image.DecompressionBombError,
+        Image.DecompressionBombWarning,
+        EOFError,
+        OSError,
+        SyntaxError,
+        ValueError,
+    ):
+        return False
+    return True
 
 
 async def download_direct_image(
@@ -105,7 +122,6 @@ async def download_direct_image(
         return None
 
     output_path = output_path_for(metadata, settings.output_dir)
-    expected_size = (metadata.width, metadata.height)
 
     for direct_url in metadata.direct_urls:
         try:
@@ -116,13 +132,19 @@ async def download_direct_image(
                 max_bytes=settings.max_direct_bytes,
                 request_limiter=request_limiter,
             )
-            if _image_size_from_bytes(content) != expected_size:
+            validation = asyncio.create_task(
+                asyncio.to_thread(_validate_direct_candidate, content, metadata)
+            )
+            if not await wait_for_worker(validation):
+                del content
                 continue
         except DownloadError:
             continue
 
         try:
-            await asyncio.to_thread(atomic_write_bytes, output_path, content)
+            await async_atomic_output(
+                output_path, lambda file, content=content: file.write(content)
+            )
         except OSError as exc:
             raise DownloadError(f"failed to write output image: {output_path}") from exc
         return output_path
@@ -255,16 +277,18 @@ def _decode_tile_content(
             crop_box = _tile_crop_box(metadata, col, row, raw_tile.size)
             raw_tile.load()
             cropped_tile = raw_tile.crop(crop_box)
-            if cropped_tile.mode == "RGB":
+            has_alpha = "A" in raw_tile.getbands() or "transparency" in raw_tile.info
+            target_mode = "RGBA" if has_alpha else "RGB"
+            if cropped_tile.mode == target_mode:
                 tile_image = cropped_tile
             else:
                 try:
-                    tile_image = cropped_tile.convert("RGB")
+                    tile_image = cropped_tile.convert(target_mode)
                 finally:
                     cropped_tile.close()
     except ImageAssemblyError:
         raise
-    except (OSError, UnidentifiedImageError, ValueError) as exc:
+    except (Image.DecompressionBombError, OSError, ValueError) as exc:
         raise ImageAssemblyError(f"invalid tile image: {col}_{row}") from exc
 
     return DecodedTile(col=col, row=row, image=tile_image)
@@ -282,24 +306,11 @@ async def _decode_tiles_bounded(
 ) -> list[DecodedTile | BaseException]:
     """Decode a bounded batch without leaking thread results during cancellation."""
 
-    async def run_batch() -> list[DecodedTile | BaseException]:
-        return await asyncio.gather(
-            *(
-                asyncio.to_thread(_decode_tile_content, metadata, tile)
-                for tile in tiles
-            ),
-            return_exceptions=True,
-        )
-
-    decode_task = asyncio.create_task(run_batch())
-    try:
-        return await asyncio.shield(decode_task)
-    except BaseException:
-        # Pillow work running in a worker thread cannot be force-cancelled. Wait for
-        # this bounded batch and close every produced image before propagating.
-        results = await decode_task
-        _close_decoded_tiles(results)
-        raise
+    batch = asyncio.gather(
+        *(asyncio.to_thread(_decode_tile_content, metadata, tile) for tile in tiles),
+        return_exceptions=True,
+    )
+    return await wait_for_worker(batch, discard=_close_decoded_tiles)
 
 
 def _image_save_kwargs(
@@ -322,6 +333,27 @@ def _new_canvas(metadata: ImageMetadata) -> Image.Image:
         raise ImageAssemblyError(
             f"failed to allocate {metadata.width}x{metadata.height} RGB canvas"
         ) from exc
+
+
+def _canvas_for_tile(canvas: Image.Image, tile: Image.Image) -> Image.Image:
+    if tile.mode == "RGBA" and canvas.mode == "RGB":
+        upgraded_canvas = canvas.convert("RGBA")
+        canvas.close()
+        return upgraded_canvas
+    return canvas
+
+
+def _canvas_bytes(metadata: ImageMetadata, settings: DownloaderSettings) -> int:
+    # Pillow uses four bytes per RGB/RGBA pixel. During an alpha upgrade both
+    # canvases coexist, so reserve space for both in formats that support alpha.
+    bytes_per_pixel = 4 if metadata.pil_format == "JPEG" else 8
+    required = metadata.output_pixel_count() * bytes_per_pixel
+    if required > settings.max_canvas_bytes:
+        raise DownloadError(
+            f"image canvas requires {required} bytes above budget "
+            f"{settings.max_canvas_bytes}"
+        )
+    return required
 
 
 def stitch_tiles(
@@ -352,6 +384,7 @@ def stitch_tiles(
                 )
                 tile_image = decoded_tile.image
                 try:
+                    canvas = _canvas_for_tile(canvas, tile_image)
                     canvas.paste(
                         tile_image,
                         (
@@ -387,6 +420,7 @@ async def download_and_stitch_tiles(
     request_limiter: asyncio.Semaphore | None = None,
 ) -> Path:
     """Pipeline bounded tile downloads, parallel decoding, and serial canvas writes."""
+    _canvas_bytes(metadata, settings)
     canvas = _new_canvas(metadata)
     positions = _tile_positions(metadata)
     pending: set[asyncio.Task[DownloadedTile]] = set()
@@ -441,6 +475,7 @@ async def download_and_stitch_tiles(
             try:
                 for tile in decoded:
                     assert isinstance(tile, DecodedTile)
+                    canvas = _canvas_for_tile(canvas, tile.image)
                     canvas.paste(
                         tile.image,
                         (
@@ -461,14 +496,11 @@ async def download_and_stitch_tiles(
             )
 
         try:
-            await asyncio.to_thread(
-                atomic_save_image,
-                output_path,
-                canvas,
-                **_image_save_kwargs(
-                    metadata,
-                    png_compression=settings.png_compression,
-                ),
+            save_kwargs = _image_save_kwargs(
+                metadata, png_compression=settings.png_compression
+            )
+            await async_atomic_output(
+                output_path, lambda file: canvas.save(file, **save_kwargs)
             )
         except OSError as exc:
             raise ImageAssemblyError(
@@ -508,6 +540,7 @@ async def download_image(
     request_limiter: asyncio.Semaphore | None = None,
 ) -> DownloadResult:
     _validate_output_size(metadata, settings)
+    _canvas_bytes(metadata, settings)
 
     direct_output_path = await download_direct_image(
         client,
@@ -544,22 +577,34 @@ async def download_images(
 
     worker_count = min(settings.image_concurrency, len(metadata_list))
     request_limiter = asyncio.Semaphore(settings.concurrency)
+    available_bytes = settings.max_canvas_bytes
+    budget_released = asyncio.Event()
     work_items = iter(enumerate(metadata_list))
     results: list[DownloadResult | None] = [None] * len(metadata_list)
 
     async def worker() -> None:
+        nonlocal available_bytes
         while True:
             try:
                 index, metadata = next(work_items)
             except StopIteration:
                 return
-            results[index] = await download_image(
-                client,
-                metadata,
-                settings,
-                progress_callback=progress_callback,
-                request_limiter=request_limiter,
-            )
+            required = _canvas_bytes(metadata, settings)
+            while required > available_bytes:
+                budget_released.clear()
+                await budget_released.wait()
+            available_bytes -= required
+            try:
+                results[index] = await download_image(
+                    client,
+                    metadata,
+                    settings,
+                    progress_callback=progress_callback,
+                    request_limiter=request_limiter,
+                )
+            finally:
+                available_bytes += required
+                budget_released.set()
 
     tasks = [asyncio.create_task(worker()) for _ in range(worker_count)]
     try:

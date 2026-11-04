@@ -11,8 +11,11 @@ Download high-resolution tiled artwork images from Artsy artwork pages for perso
   thread-safe assembly.
 - Downloads up to four images from one artwork concurrently while sharing the same
   request budget; use `--image-concurrency` to tune that limit.
-- Streams every response through configurable byte limits and keeps tile memory bounded
-  by concurrency instead of retaining the entire compressed tile set.
+- Streams image and metadata response bodies through configurable byte limits.
+  Requests identity content encoding and rejects HTTP content encodings such as gzip.
+- Limits concurrent full-image pixel buffers with `--max-canvas-bytes` (2.5 GiB by
+  default). Tile buffers and codec overhead are separate. The metadata response limit
+  defaults to 8 MiB and can be set with `--max-metadata-bytes`.
 - Writes final files with an atomic temporary file in the output directory, so a failed save does not leave a partial image at the final path.
 - Splits CLI, metadata parsing, downloading, image assembly, paths, config, and exceptions into testable modules.
 

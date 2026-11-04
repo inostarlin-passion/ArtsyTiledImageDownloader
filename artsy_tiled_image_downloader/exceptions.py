@@ -11,7 +11,7 @@ class DownloadError(ArtsyDownloaderError):
 
 
 class ResponseTooLargeError(DownloadError):
-    """Raised when an HTTP image response exceeds its configured byte limit."""
+    """Raised when an HTTP response exceeds its configured byte limit."""
 
 
 class ImageAssemblyError(ArtsyDownloaderError):

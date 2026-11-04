@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from collections.abc import Iterable
 from typing import Any
@@ -9,8 +10,8 @@ from urllib.parse import urlsplit
 import httpx
 
 from .config import GRAPHQL_HEADERS, DownloaderSettings
-from .exceptions import MetadataError
-from .http import create_async_client, request_with_retries
+from .exceptions import DownloadError, MetadataError
+from .http import create_async_client, request_bytes_with_retries
 from .models import ImageMetadata
 from .validation import is_http_url, validate_http_url
 
@@ -125,22 +126,23 @@ async def fetch_artwork(
     settings: DownloaderSettings,
 ) -> dict[str, Any]:
     try:
-        response = await request_with_retries(
+        content = await request_bytes_with_retries(
             client,
             "POST",
             settings.endpoint,
             settings,
+            max_bytes=settings.max_metadata_bytes,
             headers=GRAPHQL_HEADERS,
             json={
                 "query": ARTWORK_DEEP_ZOOM_QUERY,
                 "variables": {"artworkID": artwork_id},
             },
         )
-    except httpx.HTTPError as exc:
+    except (httpx.HTTPError, DownloadError) as exc:
         raise MetadataError(f"failed to fetch artwork metadata: {exc}") from exc
 
     try:
-        payload = response.json()
+        payload = json.loads(content)
     except ValueError as exc:
         raise MetadataError("metadata response is not valid JSON") from exc
 
@@ -200,14 +202,19 @@ def _dedupe_urls(urls: Iterable[str | None]) -> tuple[str, ...]:
 
 def get_direct_urls_by_image(
     artwork: dict[str, Any],
-) -> tuple[dict[str, tuple[str, ...]], list[tuple[str, ...]]]:
-    direct_urls_by_internal_id: dict[str, tuple[str, ...]] = {}
-    direct_urls_by_index: list[tuple[str, ...]] = []
+) -> dict[str, tuple[str, ...]]:
+    direct_urls_by_id: dict[str, tuple[str, ...]] = {}
 
     for image in artwork.get("images") or []:
         if not isinstance(image, dict):
             continue
-        direct_urls = _dedupe_urls(
+        internal_id = image.get("internalID")
+        if not isinstance(internal_id, str) or not internal_id:
+            continue
+        if internal_id in direct_urls_by_id:
+            direct_urls_by_id[internal_id] = ()
+            continue
+        direct_urls_by_id[internal_id] = _dedupe_urls(
             (
                 image.get("normalized"),
                 image.get("larger"),
@@ -215,13 +222,8 @@ def get_direct_urls_by_image(
                 image.get("main"),
             )
         )
-        direct_urls_by_index.append(direct_urls)
 
-        internal_id = image.get("internalID")
-        if internal_id:
-            direct_urls_by_internal_id[str(internal_id)] = direct_urls
-
-    return direct_urls_by_internal_id, direct_urls_by_index
+    return direct_urls_by_id
 
 
 def _require_positive_int(source: dict[str, Any], key: str, context: str) -> int:
@@ -254,7 +256,7 @@ def parse_metadatas(artwork: dict[str, Any], artwork_id: str) -> list[ImageMetad
 
     title = str(artwork.get("slug") or artwork_id)
     figures = artwork.get("figures") or []
-    direct_urls_by_internal_id, direct_urls_by_index = get_direct_urls_by_image(artwork)
+    direct_urls_by_id = get_direct_urls_by_image(artwork)
     image_metadatas: list[ImageMetadata] = []
 
     for index, figure in enumerate(figures):
@@ -295,9 +297,10 @@ def parse_metadatas(artwork: dict[str, Any], artwork_id: str) -> list[ImageMetad
             raise MetadataError(f"figure {index} missing Deep Zoom tile URL")
 
         max_zoom_level = get_max_zoom_level(width, height)
-        direct_urls = direct_urls_by_internal_id.get(str(figure.get("internalID")))
-        if direct_urls is None and index < len(direct_urls_by_index):
-            direct_urls = direct_urls_by_index[index]
+        internal_id = figure.get("internalID")
+        direct_urls = ()
+        if isinstance(internal_id, str):
+            direct_urls = direct_urls_by_id.get(internal_id, ())
 
         try:
             image_metadatas.append(
@@ -311,7 +314,7 @@ def parse_metadatas(artwork: dict[str, Any], artwork_id: str) -> list[ImageMetad
                     width=width,
                     height=height,
                     max_zoom_level=max_zoom_level,
-                    direct_urls=direct_urls or (),
+                    direct_urls=direct_urls,
                 )
             )
         except ValueError as exc:
