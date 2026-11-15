@@ -7,7 +7,7 @@ import pytest
 
 import artsy_tiled_image_downloader.cli as cli_module
 from artsy_tiled_image_downloader import __version__
-from artsy_tiled_image_downloader.download import DownloadResult
+from artsy_tiled_image_downloader.download import DownloadOutcome, DownloadResult
 from artsy_tiled_image_downloader.exceptions import DownloadError
 from artsy_tiled_image_downloader.models import ImageMetadata
 
@@ -67,13 +67,17 @@ def test_run_async_reports_metadata_and_download_progress(
         settings: object,
         *,
         progress_callback,
+        outcome_callback,
     ) -> list[DownloadResult]:
         nonlocal download_calls
         del client, settings
         download_calls += len(metadatas)
         progress_callback(1, 2)
         progress_callback(2, 2)
-        return [DownloadResult(output, "tiles", metadata) for metadata in metadatas]
+        results = [DownloadResult(output, "tiles", metadata) for metadata in metadatas]
+        for result in results:
+            outcome_callback(DownloadOutcome(result.metadata, result=result))
+        return results
 
     monkeypatch.setattr(cli_module, "create_async_client", lambda _: _ClientContext())
     monkeypatch.setattr(cli_module, "fetch_metadatas", fake_fetch)

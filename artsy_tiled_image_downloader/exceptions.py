@@ -14,5 +14,9 @@ class ResponseTooLargeError(DownloadError):
     """Raised when an HTTP response exceeds its configured byte limit."""
 
 
+class OutputExistsError(DownloadError):
+    """Raised when the destination already exists and overwrite is disabled."""
+
+
 class ImageAssemblyError(ArtsyDownloaderError):
     """Raised when downloaded image tiles cannot be stitched safely."""

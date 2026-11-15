@@ -15,6 +15,7 @@ from .config import (
     DEFAULT_MAX_DIRECT_BYTES,
     DEFAULT_MAX_METADATA_BYTES,
     DEFAULT_MAX_OUTPUT_PIXELS,
+    DEFAULT_MAX_TILE_BUFFER_BYTES,
     DEFAULT_MAX_TILE_BYTES,
     DEFAULT_MAX_TILES,
     DEFAULT_METAPHYSICS_ENDPOINT,
@@ -24,7 +25,7 @@ from .config import (
     DEFAULT_TIMEOUT_SECONDS,
     DownloaderSettings,
 )
-from .download import download_images
+from .download import BatchDownloadError, DownloadOutcome, download_images
 from .exceptions import ArtsyDownloaderError
 from .http import create_async_client
 from .metadata import fetch_metadatas
@@ -100,6 +101,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="maximum bytes accepted for a metadata response",
     )
     parser.add_argument(
+        "--max-tile-buffer-bytes",
+        type=int,
+        default=DEFAULT_MAX_TILE_BUFFER_BYTES,
+        help="shared budget for tile buffers and direct-image codec input",
+    )
+    parser.add_argument(
         "--max-tiles",
         type=int,
         default=DEFAULT_MAX_TILES,
@@ -131,6 +138,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="skip same-resolution direct image candidates and always use tiles",
     )
     parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="replace files that already exist at the output path",
+    )
+    parser.add_argument(
         "--metadata-only",
         action="store_true",
         help="fetch and print image metadata without downloading images",
@@ -150,10 +162,12 @@ async def run_async(args: argparse.Namespace) -> int:
         max_tiles=args.max_tiles,
         max_canvas_bytes=args.max_canvas_bytes,
         max_metadata_bytes=args.max_metadata_bytes,
+        max_tile_buffer_bytes=args.max_tile_buffer_bytes,
         max_tile_bytes=args.max_tile_bytes,
         max_direct_bytes=args.max_direct_bytes,
         png_compression=args.png_compression,
         prefer_direct=not args.skip_direct,
+        overwrite=args.overwrite,
     )
 
     started = time.perf_counter()
@@ -176,24 +190,44 @@ async def run_async(args: argparse.Namespace) -> int:
             log(f"Elapsed: {time.perf_counter() - started:.1f}s")
             return 0
 
-        for _ in image_metadatas:
-            log("Downloading...")
+        log("Downloading...")
 
         def on_progress(done: int, total: int) -> None:
             if done == total or done % max(1, total // 10) == 0:
                 log(f"Tiles: {done}/{total}")
 
-        results = await download_images(
-            client,
-            image_metadatas,
-            settings,
-            progress_callback=on_progress,
-        )
-        for result in results:
-            log(f"Saved: {result.output_path} ({result.method})")
+        counts = dict(saved=0, failed=0, cancelled=0)
+
+        def on_outcome(outcome: DownloadOutcome) -> None:
+            counts[outcome.status] += 1
+            label = f"{outcome.metadata.title} image {outcome.metadata.index + 1}"
+            if outcome.result is not None:
+                result = outcome.result
+                log(f"Saved: {result.output_path} ({result.method})")
+            elif outcome.error is not None:
+                print(f"Failed: {label}: {outcome.error}", file=sys.stderr, flush=True)
+            else:
+                log(f"Cancelled: {label}")
+
+        exit_code = 0
+        try:
+            await download_images(
+                client,
+                image_metadatas,
+                settings,
+                progress_callback=on_progress,
+                outcome_callback=on_outcome,
+            )
+        except BatchDownloadError:
+            exit_code = 1
+        finally:
+            log(
+                f"Saved: {counts['saved']}, failed: {counts['failed']}, "
+                f"cancelled: {counts['cancelled']}"
+            )
 
     log(f"Elapsed: {time.perf_counter() - started:.1f}s")
-    return 0
+    return exit_code
 
 
 def run(argv: Sequence[str] | None = None) -> int:
@@ -201,6 +235,8 @@ def run(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return asyncio.run(run_async(args))
+    except KeyboardInterrupt:
+        return 130
     except (ArtsyDownloaderError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr, flush=True)
         return 1

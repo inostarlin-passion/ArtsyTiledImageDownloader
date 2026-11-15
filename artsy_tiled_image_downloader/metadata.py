@@ -205,7 +205,7 @@ def get_direct_urls_by_image(
 ) -> dict[str, tuple[str, ...]]:
     direct_urls_by_id: dict[str, tuple[str, ...]] = {}
 
-    for image in artwork.get("images") or []:
+    for image in _artwork_list(artwork, "images"):
         if not isinstance(image, dict):
             continue
         internal_id = image.get("internalID")
@@ -224,6 +224,15 @@ def get_direct_urls_by_image(
         )
 
     return direct_urls_by_id
+
+
+def _artwork_list(artwork: dict[str, Any], field: str) -> list[Any]:
+    value = artwork.get(field)
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise MetadataError(f"{field} must be a list or null")
+    return value
 
 
 def _require_positive_int(source: dict[str, Any], key: str, context: str) -> int:
@@ -255,7 +264,7 @@ def parse_metadatas(artwork: dict[str, Any], artwork_id: str) -> list[ImageMetad
         raise MetadataError("artwork id must be a non-empty string")
 
     title = str(artwork.get("slug") or artwork_id)
-    figures = artwork.get("figures") or []
+    figures = _artwork_list(artwork, "figures")
     direct_urls_by_id = get_direct_urls_by_image(artwork)
     image_metadatas: list[ImageMetadata] = []
 
@@ -315,6 +324,7 @@ def parse_metadatas(artwork: dict[str, Any], artwork_id: str) -> list[ImageMetad
                     height=height,
                     max_zoom_level=max_zoom_level,
                     direct_urls=direct_urls,
+                    artwork_id=title,
                 )
             )
         except ValueError as exc:

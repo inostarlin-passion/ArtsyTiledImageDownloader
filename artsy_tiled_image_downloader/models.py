@@ -21,12 +21,17 @@ class ImageMetadata:
     height: int
     max_zoom_level: int
     direct_urls: tuple[str, ...] = field(default_factory=tuple)
+    artwork_id: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.format, str):
             raise ValueError("format must be a string")
         if not isinstance(self.title, str) or not self.title.strip():
             raise ValueError("metadata title must not be empty")
+        if self.artwork_id is not None and (
+            not isinstance(self.artwork_id, str) or not self.artwork_id.strip()
+        ):
+            raise ValueError("artwork_id must be a non-empty string or None")
         if isinstance(self.direct_urls, str):
             raise ValueError("direct image URLs must be a collection of URLs")
         try:

@@ -13,10 +13,15 @@ Download high-resolution tiled artwork images from Artsy artwork pages for perso
   request budget; use `--image-concurrency` to tune that limit.
 - Streams image and metadata response bodies through configurable byte limits.
   Requests identity content encoding and rejects HTTP content encodings such as gzip.
-- Limits concurrent full-image pixel buffers with `--max-canvas-bytes` (2.5 GiB by
-  default). Tile buffers and codec overhead are separate. The metadata response limit
-  defaults to 8 MiB and can be set with `--max-metadata-bytes`.
-- Writes final files with an atomic temporary file in the output directory, so a failed save does not leave a partial image at the final path.
+- Streams direct-image candidates to temporary files. `--max-canvas-bytes`
+  (2.5 GiB by default) budgets full image pixels. `--max-tile-buffer-bytes`
+  (4 GiB by default) budgets tile work and direct-image codec input across the
+  artwork. These estimates do not cap total process memory. The metadata response
+  limit defaults to 8 MiB and can be set with `--max-metadata-bytes`.
+- Writes complete files atomically. Existing files are preserved by default.
+- Preserves a common embedded ICC profile in tiled images and converts mixed
+  profiles to sRGB. WebP outputs exceeding 16,383 pixels on either side fail
+  before tile requests.
 - Splits CLI, metadata parsing, downloading, image assembly, paths, config, and exceptions into testable modules.
 
 ## Installation
@@ -65,6 +70,7 @@ Useful options:
 python -m artsy_tiled_image_downloader --metadata-only https://www.artsy.net/artwork/yayoi-kusama-stars-11
 python -m artsy_tiled_image_downloader --output-dir ~/Downloads --concurrency 64 --image-concurrency 4 --timeout 30 [url]
 python -m artsy_tiled_image_downloader --skip-direct [url]
+python -m artsy_tiled_image_downloader --overwrite [url]
 python -m artsy_tiled_image_downloader --png-compression 1 [url]
 ```
 
@@ -76,9 +82,19 @@ Fetching metadata...
 Images: 1
 Image 1/1: 2547x3543, 7x5 (35 tiles)
 Downloading...
-Saved: /Users/you/Downloads/output_yayoi-kusama-stars-11_0.jpg (direct)
+Saved: /Users/you/Downloads/output_yayoi-kusama-stars-11_<source-id>_0.jpg (direct)
+Saved: 1, failed: 0, cancelled: 0
 Elapsed: 1.0s
 ```
+
+Output filenames include a digest of the artwork identity. Use `--overwrite`
+to replace an existing file at the generated path. Publishing without overwrite
+requires hard-link support in the destination filesystem.
+
+If one image fails, the CLI continues downloading the other images and exits
+with status 1 after reporting the successes and failures. Python callers can use
+`outcome_callback` for per-image results. A partial failure raises
+`BatchDownloadError` with outcomes in input order.
 
 ## Testing
 
@@ -87,6 +103,7 @@ pip install -e ".[dev]"
 pytest
 pytest --cov --cov-report=term-missing
 ruff check .
+RUN_LIVE_TESTS=1 pytest tests/test_live_download.py
 ```
 
 The test suite covers URL and limit validation, metadata parsing, filename safety,
@@ -125,11 +142,10 @@ matches the package version before building and uploading both the wheel and sdi
 
 ## Temporary Data
 
-The downloader does not store tiles in a process-wide temporary directory.
-Only a concurrency-bounded set of compressed and decoded tiles is held while the
-download/decode/stitch pipeline is active. Decoded images are closed immediately
-after they are pasted. The only temporary files are short-lived files created beside
-the final output for atomic replacement.
+The downloader holds a bounded set of compressed and decoded tiles in memory.
+Decoded images are closed after they are pasted. The downloader creates temporary
+files beside the final output to stream direct candidates and encode assembled
+images before committing them.
 
 If a future very-large-image mode needs disk-backed tile caching, prefer `tempfile.TemporaryDirectory()` as a scoped context manager rather than a fixed folder under `~/Downloads`.
 

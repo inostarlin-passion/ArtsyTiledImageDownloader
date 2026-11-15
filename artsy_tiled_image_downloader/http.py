@@ -7,12 +7,13 @@ import random
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, BinaryIO
 
 import httpx
 
 from .config import DownloaderSettings
 from .exceptions import DownloadError, ResponseTooLargeError
+from .paths import wait_for_worker
 
 
 def create_async_client(
@@ -148,12 +149,31 @@ async def request_bytes_with_retries(
     max_bytes: int,
     **kwargs: Any,
 ) -> bytes:
-    """Stream a bounded response body while retaining the standard retry policy."""
-    if (
-        not isinstance(max_bytes, int)
-        or isinstance(max_bytes, bool)
-        or max_bytes <= 0
-    ):
+    return await _request_body(client, method, url, settings, max_bytes, None, kwargs)
+
+
+async def request_file_with_retries(
+    client: httpx.AsyncClient,
+    url: str,
+    settings: DownloaderSettings,
+    output: BinaryIO,
+    *,
+    max_bytes: int,
+    **kwargs: Any,
+) -> None:
+    await _request_body(client, "GET", url, settings, max_bytes, output, kwargs)
+
+
+async def _request_body(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    settings: DownloaderSettings,
+    max_bytes: int,
+    output: BinaryIO | None,
+    kwargs: dict[str, Any],
+) -> bytes:
+    if not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or max_bytes <= 0:
         raise ValueError("max_bytes must be greater than 0")
 
     auth = kwargs.pop("auth", httpx.USE_CLIENT_DEFAULT)
@@ -165,6 +185,9 @@ async def request_bytes_with_retries(
     for attempt in range(settings.retries):
         retry_response: httpx.Response | None = None
         try:
+            if output is not None and attempt:
+                output.seek(0)
+                output.truncate()
             request = client.build_request(method, url, **kwargs)
             request.headers["Accept-Encoding"] = "identity"
             async with _stream_response(
@@ -184,12 +207,20 @@ async def request_bytes_with_retries(
                     raise DownloadError(f"unsupported Content-Encoding: {encoding}")
 
                 content = bytearray()
-                async for chunk in response.aiter_bytes():
-                    if len(content) + len(chunk) > max_bytes:
+                received = 0
+                chunk_size = 64 * 1024 if output is not None else None
+                async for chunk in response.aiter_bytes(chunk_size=chunk_size):
+                    received += len(chunk)
+                    if received > max_bytes:
                         raise ResponseTooLargeError(
                             f"response from {url} exceeds byte limit {max_bytes}"
                         )
-                    content.extend(chunk)
+                    if output is None:
+                        content.extend(chunk)
+                    else:
+                        await wait_for_worker(
+                            asyncio.create_task(asyncio.to_thread(output.write, chunk))
+                        )
                 return bytes(content)
         except ResponseTooLargeError:
             raise

@@ -51,7 +51,10 @@ def test_output_path_for_uses_safe_title_and_extension(tmp_path: Path) -> None:
         max_zoom_level=9,
     )
 
-    assert output_path_for(metadata, tmp_path) == tmp_path / "output_Title_One_3.jpg"
+    output = output_path_for(metadata, tmp_path)
+    assert output.parent == tmp_path
+    assert output.name.startswith("output_Title_One_")
+    assert output.name.endswith("_3.jpg")
 
 
 @pytest.mark.parametrize("writer", ["bytes", "image"])

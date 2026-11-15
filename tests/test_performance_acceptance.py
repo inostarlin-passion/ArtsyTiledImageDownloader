@@ -127,6 +127,7 @@ async def _measure_tile_download(
         output_dir=tmp_path,
         concurrency=concurrency,
         prefer_direct=False,
+        overwrite=True,
     )
     transport = DelayedTransport(_jpeg_tile(), BENCHMARK_DELAY_SECONDS)
     metadata = _single_image_metadata()

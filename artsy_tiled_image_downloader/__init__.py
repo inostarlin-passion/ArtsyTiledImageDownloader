@@ -3,6 +3,8 @@
 from ._version import __version__
 from .config import DownloaderSettings
 from .download import (
+    BatchDownloadError,
+    DownloadOutcome,
     DownloadResult,
     download_artwork,
     download_full_image,
@@ -18,6 +20,8 @@ from .models import ImageMetadata
 
 __all__ = [
     "DownloadResult",
+    "BatchDownloadError",
+    "DownloadOutcome",
     "DownloaderSettings",
     "ImageMetadata",
     "__version__",

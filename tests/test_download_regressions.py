@@ -324,6 +324,7 @@ async def cancel_save(tmp_path, monkeypatch, tile, direct):
     started = asyncio.Event()
     release = threading.Event()
     real_stage = paths._stage_output
+    real_validate = downloader._validate_direct_candidate
     loop = asyncio.get_running_loop()
     staged = []
 
@@ -334,13 +335,23 @@ async def cancel_save(tmp_path, monkeypatch, tile, direct):
         staged.append(temporary)
         return temporary
 
-    monkeypatch.setattr(paths, "_stage_output", blocked_stage)
+    def blocked_validate(path, metadata):
+        staged.append(path)
+        assert path.read_bytes() == tile
+        loop.call_soon_threadsafe(started.set)
+        assert release.wait(5)
+        return real_validate(path, metadata)
+
+    if direct:
+        monkeypatch.setattr(downloader, "_validate_direct_candidate", blocked_validate)
+    else:
+        monkeypatch.setattr(paths, "_stage_output", blocked_stage)
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(lambda _: httpx.Response(200, content=tile))
     ) as client:
         task = asyncio.create_task(
             downloader.download_image(
-                client, spec, DownloaderSettings(output_dir=tmp_path)
+                client, spec, DownloaderSettings(output_dir=tmp_path, overwrite=True)
             )
         )
         try:
@@ -381,7 +392,7 @@ def test_a16_successful_save_commits(tmp_path, image_bytes, direct):
             transport=httpx.MockTransport(lambda _: httpx.Response(200, content=tile))
         ) as client:
             return await downloader.download_image(
-                client, spec, DownloaderSettings(output_dir=tmp_path)
+                client, spec, DownloaderSettings(output_dir=tmp_path, overwrite=True)
             )
 
     result = asyncio.run(run())

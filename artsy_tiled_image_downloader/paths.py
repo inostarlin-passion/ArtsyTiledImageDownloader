@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from hashlib import sha256
 from pathlib import Path
 from typing import BinaryIO, TypeVar
 
@@ -30,11 +33,18 @@ def safe_filename(value: str, *, fallback: str = "artwork") -> str:
 
 def output_path_for(metadata: ImageMetadata, output_dir: Path) -> Path:
     title = safe_filename(metadata.title)
-    filename = f"output_{title}_{metadata.index}.{metadata.output_extension}"
+    identity = (
+        ("artwork", metadata.artwork_id)
+        if metadata.artwork_id is not None
+        else ("tiles", metadata.title, metadata.url)
+    )
+    source = sha256(json.dumps(identity).encode("ascii")).hexdigest()[:16]
+    filename = f"output_{title}_{source}_{metadata.index}.{metadata.output_extension}"
     return output_dir / filename
 
 
-def _stage_output(target: Path, write: Callable[[BinaryIO], object]) -> Path:
+@contextmanager
+def temporary_output(target: Path) -> Iterator[tuple[Path, BinaryIO]]:
     target.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(
         prefix=f".{target.name}.",
@@ -44,19 +54,26 @@ def _stage_output(target: Path, write: Callable[[BinaryIO], object]) -> Path:
     tmp_path = Path(tmp_name)
     try:
         with os.fdopen(fd, "wb") as file:
-            write(file)
+            yield tmp_path, file
     except BaseException:
         tmp_path.unlink(missing_ok=True)
         raise
-    return tmp_path
 
 
-def _commit_output(temporary: Path, target: Path) -> None:
+def _stage_output(target: Path, write: Callable[[BinaryIO], object]) -> Path:
+    with temporary_output(target) as (temporary, file):
+        write(file)
+    return temporary
+
+
+def commit_output(temporary: Path, target: Path, *, overwrite: bool) -> None:
     try:
-        os.replace(temporary, target)
-    except BaseException:
+        if overwrite:
+            os.replace(temporary, target)
+        else:
+            os.link(temporary, target)
+    finally:
         temporary.unlink(missing_ok=True)
-        raise
 
 
 T = TypeVar("T")
@@ -82,21 +99,23 @@ async def wait_for_worker(
 
 
 async def async_atomic_output(
-    target: Path, write: Callable[[BinaryIO], object]
+    target: Path, write: Callable[[BinaryIO], object], *, overwrite: bool = True
 ) -> None:
     task = asyncio.create_task(asyncio.to_thread(_stage_output, target, write))
     temporary = await wait_for_worker(
         task,
         discard=lambda path: path.unlink(missing_ok=True),
     )
-    _commit_output(temporary, target)
+    commit_output(temporary, target, overwrite=overwrite)
 
 
 def atomic_write_bytes(target: Path, data: bytes) -> None:
     temporary = _stage_output(target, lambda file: file.write(data))
-    _commit_output(temporary, target)
+    commit_output(temporary, target, overwrite=True)
 
 
-def atomic_save_image(target: Path, image: Image.Image, **save_kwargs: object) -> None:
+def atomic_save_image(
+    target: Path, image: Image.Image, *, overwrite: bool = True, **save_kwargs: object
+) -> None:
     temporary = _stage_output(target, lambda file: image.save(file, **save_kwargs))
-    _commit_output(temporary, target)
+    commit_output(temporary, target, overwrite=overwrite)

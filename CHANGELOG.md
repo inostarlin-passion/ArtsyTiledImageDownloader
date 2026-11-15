@@ -2,6 +2,31 @@
 
 All notable changes to this project are documented here.
 
+## 2.1.3 - 2026-11-15
+
+### Added
+
+- Added `--overwrite` for explicit replacement and `--max-tile-buffer-bytes`
+  to configure the shared tile and direct-image codec buffer budget.
+- Added a scheduled Artsy smoke test that downloads and decodes a real image
+  through both download paths.
+
+### Changed
+
+- Output filenames include an artwork identity digest. Existing files at the
+  generated path are preserved by default.
+- Batch downloads continue after individual image failures and report the
+  outcome of each image. The Python API exposes ordered outcomes on partial
+  failure through `BatchDownloadError`.
+
+### Fixed
+
+- Stream direct images to disk and bound the memory reserved for tile
+  processing and direct-image validation.
+- Reject over-limit WebP output dimensions before downloading tiles.
+- Preserve shared ICC profiles and normalize mixed profiles to sRGB.
+- Report malformed GraphQL image collections as field-specific CLI errors.
+
 ## 2.1.2 - 2026-11-04
 
 ### Added

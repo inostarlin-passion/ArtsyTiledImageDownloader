@@ -99,8 +99,9 @@ def test_cli_end_to_end_with_local_http_server(
         thread.join(timeout=5)
 
     assert result.returncode == 0, result.stderr
-    output = tmp_path / "output_local-test_0.png"
+    [output] = tmp_path.glob("output_local-test_*_0.png")
     assert output.exists()
+    assert f"Saved: {output}" in result.stdout
     with Image.open(output) as image:
         assert image.size == (4, 4)
         assert image.getpixel((3, 3)) == (120, 30, 200)

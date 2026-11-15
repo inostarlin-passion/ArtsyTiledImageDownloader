@@ -16,6 +16,7 @@ DEFAULT_IMAGE_CONCURRENCY = 4
 DEFAULT_RETRIES = 3
 DEFAULT_MAX_OUTPUT_PIXELS = 300_000_000
 DEFAULT_MAX_CANVAS_BYTES = 2560 * 1024 * 1024
+DEFAULT_MAX_TILE_BUFFER_BYTES = 4 * 1024**3
 DEFAULT_MAX_METADATA_BYTES = 8 * 1024 * 1024
 DEFAULT_MAX_TILES = 100_000
 DEFAULT_MAX_TILE_BYTES = 16 * 1024 * 1024
@@ -43,6 +44,8 @@ class DownloaderSettings:
 
     max_canvas_bytes: int = DEFAULT_MAX_CANVAS_BYTES
     max_metadata_bytes: int = DEFAULT_MAX_METADATA_BYTES
+    max_tile_buffer_bytes: int = DEFAULT_MAX_TILE_BUFFER_BYTES
+    overwrite: bool = False
 
     def __post_init__(self) -> None:
         try:
@@ -90,6 +93,7 @@ class DownloaderSettings:
         positive_integer_fields = {
             "max_output_pixels": self.max_output_pixels,
             "max_canvas_bytes": self.max_canvas_bytes,
+            "max_tile_buffer_bytes": self.max_tile_buffer_bytes,
             "max_metadata_bytes": self.max_metadata_bytes,
             "max_tiles": self.max_tiles,
             "max_tile_bytes": self.max_tile_bytes,
@@ -107,6 +111,8 @@ class DownloaderSettings:
             raise ValueError("png_compression must be between 0 and 9")
         if not isinstance(self.prefer_direct, bool):
             raise ValueError("prefer_direct must be a boolean")
+        if not isinstance(self.overwrite, bool):
+            raise ValueError("overwrite must be a boolean")
 
 
 REQUEST_HEADERS = {

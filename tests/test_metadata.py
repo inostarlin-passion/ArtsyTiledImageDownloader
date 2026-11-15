@@ -72,6 +72,7 @@ def test_parse_metadatas_builds_deep_zoom_metadata(sample_artwork_payload) -> No
     metadata = parse_metadatas(sample_artwork_payload(), "local-test")[0]
 
     assert metadata.title == "local-test"
+    assert metadata.artwork_id == "local-test"
     assert metadata.url == "https://tiles.example/artwork_files/2/"
     assert metadata.rows == 2
     assert metadata.cols == 2
